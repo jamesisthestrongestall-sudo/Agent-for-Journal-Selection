@@ -92,6 +92,14 @@ python -m journal_agent crawl ^
   --output data/legal_journals.demo_output.json
 ```
 
+If you have uploaded an SSCI CSV export (for example `data/Social Sciences Citation Index (SSCI).csv`), use:
+
+```bash
+python -m journal_agent crawl ^
+  --manifest data/source_manifest.ssci.json ^
+  --output data/legal_journals.collected.json
+```
+
 ## How ranking works
 
 The default ranking engine uses a hybrid heuristic approach that is easy to inspect and extend:
@@ -99,13 +107,16 @@ The default ranking engine uses a hybrid heuristic approach that is easy to insp
 1. Parse manuscript title, abstract, keywords, and body.
 2. Detect law-specific methodology and editorial signals from the taxonomy file.
 3. Compare the manuscript to each journal profile using TF-IDF character n-gram similarity plus keyword overlap.
-4. Compute:
+4. Compare manuscript sections (title, abstract, keywords, main body) against journal OA article sections when available.
+5. For non-OA article samples, compare manuscript title/abstract/keywords against article title/abstract/keywords.
+6. Optionally compare manuscript references against references from journal article samples when those fields exist in the dataset.
+7. Compute:
    - `content_fit`
    - `methodology_fit`
    - `editorial_fit`
    - `venue_quality`
    - `feasibility`
-5. Produce:
+8. Produce:
    - `overall_score`
    - `match_probability`
    - plain-language rationale
@@ -129,7 +140,14 @@ Suggested real-world workflow:
 Candidate policy in the current implementation:
 
 - Chinese manuscript: recommend Chinese law journals only.
-- English manuscript: recommend English law journals plus all English SSCI journals present in the dataset.
+- English manuscript: recommend English journals only; prioritize law and adjacent humanities/social-science journals (for example SSCI/AHCI/ESCI indexed titles).
+
+Language rule used by the agent:
+
+- The recommendation language is always locked to the manuscript language.
+- English manuscript -> English journals only.
+- Chinese manuscript -> Chinese journals only.
+- Manuscript discipline can be legal, but candidate journals are not hard-limited to law; adjacent humanities/social-science venues can be considered when the topic matches.
 
 ## Extending to other disciplines
 

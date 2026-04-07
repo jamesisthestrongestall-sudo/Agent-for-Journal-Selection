@@ -125,7 +125,7 @@ class HeuristicScoringEngine:
 
     def _journal_corpus(self, journal: JournalProfile) -> str:
         recent_articles = " ".join(
-            f"{article.title} {' '.join(article.keywords)} {article.abstract_snippet}"
+            f"{article.title} {' '.join(article.keywords)} {article.abstract_snippet} {article.full_text}"
             for article in journal.recent_articles
         )
         return "\n".join(
@@ -156,7 +156,49 @@ class HeuristicScoringEngine:
             self._extract_concepts(manuscript.combined_text()),
             self._extract_concepts(self._journal_corpus(journal)),
         )
-        return clamp(0.50 * similarity + 0.20 * overlap + 0.30 * concept_overlap)
+        article_section_fit = self._article_section_fit(manuscript, journal)
+        reference_fit = self._reference_similarity_fit(manuscript, journal)
+        weighted_parts = [(similarity, 0.35), (overlap, 0.15), (concept_overlap, 0.20), (article_section_fit, 0.20)]
+        if reference_fit is not None:
+            weighted_parts.append((reference_fit, 0.10))
+        total_weight = sum(weight for _, weight in weighted_parts)
+        if not total_weight:
+            return 0.0
+        blended = sum(score * weight for score, weight in weighted_parts) / total_weight
+        return clamp(blended)
+
+    def _article_section_fit(self, manuscript: ManuscriptProfile, journal: JournalProfile) -> float:
+        if not journal.recent_articles:
+            return 0.0
+        article_scores: list[float] = []
+        for article in journal.recent_articles:
+            section_scores: list[tuple[float, float]] = [
+                (cosine_similarity_scores(manuscript.title, [article.title])[0], 0.25),
+                (cosine_similarity_scores(manuscript.abstract, [article.abstract_snippet])[0], 0.25),
+                (keyword_overlap(manuscript.keywords, article.keywords), 0.20),
+            ]
+            has_oa_full_text = article.is_oa is not False and normalize_space(article.full_text)
+            if has_oa_full_text:
+                section_scores.append((cosine_similarity_scores(manuscript.full_text, [article.full_text])[0], 0.30))
+            weight_sum = sum(weight for _, weight in section_scores)
+            if not weight_sum:
+                continue
+            article_score = sum(score * weight for score, weight in section_scores) / weight_sum
+            article_scores.append(article_score)
+        return clamp(max(article_scores, default=0.0))
+
+    def _reference_similarity_fit(self, manuscript: ManuscriptProfile, journal: JournalProfile) -> float | None:
+        if not normalize_space(manuscript.references_text):
+            return None
+        article_references = [
+            normalize_space(article.references_text)
+            for article in journal.recent_articles
+            if normalize_space(article.references_text)
+        ]
+        if not article_references:
+            return None
+        similarity_scores = cosine_similarity_scores(manuscript.references_text, article_references)
+        return clamp(max(similarity_scores, default=0.0))
 
     def _preference_fit(
         self,

@@ -9,6 +9,9 @@ class JournalArticleExample(BaseModel):
     title: str
     keywords: list[str] = Field(default_factory=list)
     abstract_snippet: str = ""
+    full_text: str = ""
+    references_text: str = ""
+    is_oa: bool | None = None
 
 
 class JournalProfile(BaseModel):

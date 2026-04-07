@@ -57,10 +57,10 @@ def run_recommend(args: argparse.Namespace) -> None:
         discipline=args.discipline,
         top_k=args.top_k,
     )
-    agent.export_csv(recommendations, args.output)
+    agent.export_results(recommendations, args.output)
     print(f"Manuscript: {manuscript.title}")
     print(f"Language: {manuscript.language}")
-    print(f"Output CSV: {Path(args.output).resolve()}")
+    print(f"Output file: {Path(args.output).resolve()}")
     print("Top recommendations:")
     for index, item in enumerate(recommendations[:5], start=1):
         print(

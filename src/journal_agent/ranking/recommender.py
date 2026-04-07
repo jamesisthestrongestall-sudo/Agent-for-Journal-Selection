@@ -46,8 +46,10 @@ class JournalRecommendationAgent:
         recommendations = engine.score(manuscript, journals)
         return manuscript, recommendations[:top_k]
 
-    def export_csv(self, recommendations: list[RecommendationResult], output_path: str | Path) -> None:
+    def export_results(self, recommendations: list[RecommendationResult], output_path: str | Path) -> None:
         path = Path(output_path)
+        if path.suffix.lower() == ".xlsx":
+            raise ValueError("Only CSV export is supported. Please use a .csv output path.")
         path.parent.mkdir(parents=True, exist_ok=True)
         rows = [item.as_csv_row() for item in recommendations]
         if not rows:
@@ -71,18 +73,15 @@ class JournalRecommendationAgent:
             if manuscript_language == "zh":
                 if journal_language != "zh":
                     continue
-                if journal.discipline != discipline:
-                    continue
                 candidates.append(journal)
                 continue
             if manuscript_language == "en":
                 if journal_language != "en":
                     continue
-                if journal.discipline == discipline or self._is_ssci(journal):
+                if self._is_humanities_social_sciences(journal) or journal.discipline == discipline or self._is_ssci(journal):
                     candidates.append(journal)
                 continue
-            if journal.discipline == discipline:
-                candidates.append(journal)
+            candidates.append(journal)
         return candidates
 
     def _journal_language(self, journal) -> str:
@@ -96,3 +95,26 @@ class JournalRecommendationAgent:
 
     def _is_ssci(self, journal) -> bool:
         return any(index.strip().upper() == "SSCI" for index in journal.indexing)
+
+    def _is_humanities_social_sciences(self, journal) -> bool:
+        discipline = (journal.discipline or "").strip().lower()
+        if discipline in {
+            "law",
+            "political science",
+            "public policy",
+            "sociology",
+            "anthropology",
+            "economics",
+            "history",
+            "philosophy",
+            "international relations",
+            "area studies",
+            "criminology",
+            "communication",
+            "education",
+            "social sciences",
+            "humanities",
+        }:
+            return True
+        index_set = {item.strip().upper() for item in journal.indexing}
+        return bool(index_set.intersection({"SSCI", "AHCI", "ESCI"}))
