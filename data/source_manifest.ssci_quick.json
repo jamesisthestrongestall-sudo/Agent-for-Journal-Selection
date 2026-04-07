@@ -1,12 +1,9 @@
 {
   "sources": [
     {
-      "name": "ssci_uploaded_csv",
-      "type": "ssci_csv_enriched",
+      "name": "ssci_uploaded_csv_quick",
+      "type": "ssci_csv_lookup",
       "path": "Social Sciences Citation Index (SSCI).csv",
-      "recent_article_count": 5,
-      "request_delay_sec": 0.2,
-      "cache_dir": "cache/ssci_enrichment",
       "static_fields": {
         "indexing": ["SSCI"],
         "source_tags": ["ssci_uploaded", "ssci_local_csv"]

@@ -8,6 +8,7 @@ Current capabilities:
 - Detect manuscript language and keep Chinese and English recommendation pools separate.
 - Remove reference sections from the ranking text and isolate Word footnotes from the main body.
 - Build journal portraits directly from the local SSCI CSV in `data/`.
+- Enrich SSCI journal portraits by crawling real `Aims & Scope` pages and recent article metadata.
 - Optionally export a normalized journal dataset from local CSV or JSON source manifests.
 - Score journals from three fit dimensions:
   - content fit
@@ -27,6 +28,7 @@ Important note:
 
 - This repository ships with a seed law-journal dataset for local testing.
 - The current default English-journal workflow no longer depends on crawling legal-journal sites. It reads `data/Social Sciences Citation Index (SSCI).csv`, then generates journal portraits from SSCI metadata and category lookup rules.
+- If you run `crawl --manifest data/source_manifest.ssci.json`, the builder will also try to enrich each journal with real `Aims & Scope` text and recent article abstracts/keywords using OpenAlex plus publisher-site crawling.
 
 ## Project layout
 
@@ -77,12 +79,20 @@ python -m journal_agent recommend ^
   --taxonomy data/law_taxonomy.json
 ```
 
-If you still want to export a normalized dataset JSON from the local SSCI CSV:
+If you want to export an enriched SSCI dataset JSON with crawled `Aims & Scope` and recent article metadata:
 
 ```bash
 python -m journal_agent crawl ^
   --manifest data/source_manifest.ssci.json ^
   --output data/legal_journals.collected.json
+```
+
+If you only want the fast metadata-derived version without live crawling:
+
+```bash
+python -m journal_agent crawl ^
+  --manifest data/source_manifest.ssci_quick.json ^
+  --output data/legal_journals.quick.json
 ```
 
 For a local smoke test without external sources:
@@ -132,18 +142,29 @@ The current default English-journal pipeline is:
    - editorial preferences
 4. Use the generated portrait directly in recommendation.
 
+The enriched SSCI build pipeline is:
+
+1. Read the SSCI CSV list.
+2. Use ISSN/eISSN and title to locate the journal source in OpenAlex.
+3. Pull the journal homepage URL when available.
+4. Crawl the publisher site to find and extract real `Aims & Scope` text.
+5. Pull recent journal articles from OpenAlex and store their abstracts and keywords in `recent_articles`.
+6. Cache enrichment responses under `data/cache/ssci_enrichment/` so reruns do not start from zero.
+
 The source manifest system is still available when you want to export or merge local datasets. It supports:
 
 - `json`: load normalized journal records directly.
 - `csv`: import local CSV tables.
 - `ssci_csv_lookup`: read the uploaded SSCI CSV and generate journal portraits without crawling.
+- `ssci_csv_enriched`: read the uploaded SSCI CSV, then enrich portraits with live crawling and recent article metadata.
 
 Suggested real-world workflow:
 
 1. Keep `data/Social Sciences Citation Index (SSCI).csv` up to date.
-2. Run recommendation directly against that CSV for English manuscripts.
-3. If needed, export a normalized JSON snapshot through `data/source_manifest.ssci.json`.
-4. For Chinese journals, use local CSV or JSON imports instead of crawler-dependent flows.
+2. Run `crawl --manifest data/source_manifest.ssci.json` to build an enriched JSON snapshot.
+3. Use that enriched JSON for recommendation when you want higher-quality journal portraits.
+4. If you only need a fast baseline, run recommendation directly against the raw CSV.
+5. For Chinese journals, use local CSV or JSON imports instead of crawler-dependent flows.
 
 Candidate policy in the current implementation:
 

@@ -22,8 +22,11 @@
     },
     {
       "name": "ssci_all_export",
-      "type": "ssci_csv_lookup",
+      "type": "ssci_csv_enriched",
       "path": "import/ssci_all_export.csv",
+      "recent_article_count": 5,
+      "request_delay_sec": 0.2,
+      "cache_dir": "import/cache/ssci_enrichment",
       "static_fields": {
         "indexing": ["SSCI"],
         "source_tags": ["ssci_export_all", "ssci_local_csv"]

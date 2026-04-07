@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+from journal_agent.data.enrichment import JournalProfileEnricher
 from journal_agent.models.schemas import JournalProfile
 from journal_agent.utils.text_processing import extract_candidate_terms, normalize_space, normalize_title_key, parse_keyword_string
 
@@ -297,6 +298,26 @@ class SsciCsvLookupSource(CsvSource):
         )
 
 
+class SsciCsvEnrichedSource(SsciCsvLookupSource):
+    def fetch(self) -> list[JournalProfile]:
+        base_profiles = super().fetch()
+        max_journals = self.config.get("max_journals")
+        if max_journals is not None:
+            base_profiles = base_profiles[: int(max_journals)]
+        enricher = JournalProfileEnricher(
+            recent_article_count=int(self.config.get("recent_article_count", 5)),
+            request_delay_sec=float(self.config.get("request_delay_sec", 0.0)),
+            cache_dir=(self.base_dir / self.config["cache_dir"]).resolve() if self.config.get("cache_dir") else None,
+        )
+        enriched_profiles: list[JournalProfile] = []
+        for profile in base_profiles:
+            try:
+                enriched_profiles.append(enricher.enrich(profile))
+            except requests.RequestException:
+                enriched_profiles.append(profile)
+        return enriched_profiles
+
+
 class HtmlListSource(JournalSource):
     def fetch(self) -> list[JournalProfile]:
         response = requests.get(self.config["url"], timeout=30)
@@ -337,6 +358,7 @@ class DatasetBuilder:
         "csv": CsvSource,
         "clarivate_mjl_csv": ClarivateMjlCsvSource,
         "ssci_csv_lookup": SsciCsvLookupSource,
+        "ssci_csv_enriched": SsciCsvEnrichedSource,
         "html_list": HtmlListSource,
     }
 

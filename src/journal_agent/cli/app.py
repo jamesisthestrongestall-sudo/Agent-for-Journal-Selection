@@ -81,3 +81,4 @@ def run_crawl(args: argparse.Namespace) -> None:
     builder.save(profiles, args.output)
     print(f"Collected {len(profiles)} journals.")
     print(f"Saved dataset to: {Path(args.output).resolve()}")
+    print("Use this JSON file as --dataset for recommendation if you want the enriched journal portraits.")
