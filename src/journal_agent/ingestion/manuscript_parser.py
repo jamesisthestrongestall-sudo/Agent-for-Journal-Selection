@@ -50,9 +50,11 @@ class ManuscriptParser:
     ) -> ManuscriptProfile:
         raw_text = ""
         footnotes_text = ""
+        provided_references_text = ""
         if manuscript_path:
-            raw_text, footnotes_text = self._read_path(Path(manuscript_path))
+            raw_text, footnotes_text, provided_references_text = self._read_path(Path(manuscript_path))
         body_text, references_text = self._split_references(raw_text)
+        references_text = normalize_space("\n".join([provided_references_text, references_text]))
         body_text = self._strip_inline_citations(body_text)
         body_text, inline_footnotes = self._strip_footnote_like_lines(body_text)
         footnotes_text = normalize_space("\n".join([footnotes_text, inline_footnotes]))
@@ -83,12 +85,12 @@ class ManuscriptParser:
             return parse_keyword_string(keywords)
         return parse_keyword_string("; ".join(keywords))
 
-    def _read_path(self, path: Path) -> tuple[str, str]:
+    def _read_path(self, path: Path) -> tuple[str, str, str]:
         suffix = path.suffix.lower()
         if suffix == ".docx":
             return self._read_docx(path)
         if suffix in {".txt", ".md"}:
-            return path.read_text(encoding="utf-8"), ""
+            return path.read_text(encoding="utf-8"), "", ""
         if suffix == ".json":
             payload = json.loads(path.read_text(encoding="utf-8"))
             full_text = "\n".join(
@@ -101,10 +103,10 @@ class ManuscriptParser:
             )
             references_text = payload.get("references_text", "")
             footnotes_text = payload.get("footnotes_text", "")
-            return normalize_space(full_text), normalize_space("\n".join([references_text, footnotes_text]))
+            return normalize_space(full_text), normalize_space(footnotes_text), normalize_space(references_text)
         raise ValueError(f"Unsupported manuscript format: {path.suffix}")
 
-    def _read_docx(self, path: Path) -> tuple[str, str]:
+    def _read_docx(self, path: Path) -> tuple[str, str, str]:
         namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
         with zipfile.ZipFile(path) as archive:
             xml_bytes = archive.read("word/document.xml")
@@ -130,7 +132,7 @@ class ManuscriptParser:
                 if joined:
                     footnotes.append(joined)
 
-        return "\n".join(paragraphs), "\n".join(footnotes)
+        return "\n".join(paragraphs), "\n".join(footnotes), ""
 
     def _split_references(self, text: str) -> tuple[str, str]:
         lines = [line.rstrip() for line in text.splitlines()]
