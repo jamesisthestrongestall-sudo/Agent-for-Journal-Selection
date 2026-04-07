@@ -92,6 +92,14 @@ python -m journal_agent crawl ^
   --output data/legal_journals.demo_output.json
 ```
 
+If you have uploaded an SSCI CSV export (for example `data/Social Sciences Citation Index (SSCI).csv`), use:
+
+```bash
+python -m journal_agent crawl ^
+  --manifest data/source_manifest.ssci.json ^
+  --output data/legal_journals.collected.json
+```
+
 ## How ranking works
 
 The default ranking engine uses a hybrid heuristic approach that is easy to inspect and extend:

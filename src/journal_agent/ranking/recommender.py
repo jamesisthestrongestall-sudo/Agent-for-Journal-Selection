@@ -46,8 +46,10 @@ class JournalRecommendationAgent:
         recommendations = engine.score(manuscript, journals)
         return manuscript, recommendations[:top_k]
 
-    def export_csv(self, recommendations: list[RecommendationResult], output_path: str | Path) -> None:
+    def export_results(self, recommendations: list[RecommendationResult], output_path: str | Path) -> None:
         path = Path(output_path)
+        if path.suffix.lower() == ".xlsx":
+            raise ValueError("Only CSV export is supported. Please use a .csv output path.")
         path.parent.mkdir(parents=True, exist_ok=True)
         rows = [item.as_csv_row() for item in recommendations]
         if not rows:

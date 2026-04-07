@@ -1,0 +1,24 @@
+{
+  "sources": [
+    {
+      "name": "ssci_uploaded_csv",
+      "type": "clarivate_mjl_csv",
+      "path": "Social Sciences Citation Index (SSCI).csv",
+      "delimiter": ",",
+      "field_mapping": {
+        "title": "Journal name",
+        "website": "Journal website",
+        "publisher": "Publisher",
+        "discipline": "Web of Science Categories",
+        "language": "Languages",
+        "jcr_quartile": "Journal Impact Factor Quartile",
+        "impact_factor": "Journal Impact Factor",
+        "aims_and_scope": "Aims & Scope"
+      },
+      "static_fields": {
+        "indexing": ["SSCI"],
+        "source_tags": ["clarivate_master_journal_list", "ssci_uploaded"]
+      }
+    }
+  ]
+}
