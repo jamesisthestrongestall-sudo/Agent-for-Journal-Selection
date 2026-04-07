@@ -54,6 +54,8 @@ class ManuscriptProfile(BaseModel):
     methodologies: dict[str, float] = Field(default_factory=dict)
     editorial_signals: dict[str, float] = Field(default_factory=dict)
     extracted_terms: list[str] = Field(default_factory=list)
+    legal_terms: list[str] = Field(default_factory=list)
+    legal_topic_score: float = 0.0
 
     def combined_text(self) -> str:
         return "\n".join(

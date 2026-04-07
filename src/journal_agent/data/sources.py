@@ -32,6 +32,10 @@ def _coerce_list(value: Any) -> list[str]:
 def _coerce_float(value: Any) -> float | None:
     if value in (None, ""):
         return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _normalize_language_name(value: str | None) -> str | None:
@@ -58,10 +62,6 @@ def _extract_country(address: str | None) -> str | None:
         return None
     parts = [part.strip() for part in normalized.split(",") if part.strip()]
     return parts[-2] if len(parts) >= 2 else parts[-1]
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 class JournalSource(ABC):

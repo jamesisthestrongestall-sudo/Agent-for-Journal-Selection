@@ -10,6 +10,31 @@ from journal_agent.ranking.scoring import HeuristicScoringEngine
 from journal_agent.utils.text_processing import detect_language
 
 
+DIRECT_LAW_JOURNAL_TERMS = {
+    "law",
+    "legal",
+    "jurisprudence",
+    "court",
+    "judicial",
+    "justice",
+    "criminology",
+    "penology",
+    "human rights",
+    "constitutional",
+    "public law",
+}
+LAW_ADJACENT_JOURNAL_TERMS = {
+    "political science",
+    "public administration",
+    "international relations",
+    "governance",
+    "regulation",
+    "policy",
+    "state",
+    "institutions",
+}
+
+
 class JournalRecommendationAgent:
     def __init__(self) -> None:
         self.repository = JournalRepository()
@@ -27,6 +52,8 @@ class JournalRecommendationAgent:
         discipline: str = "law",
         top_k: int = 15,
     ) -> tuple[ManuscriptProfile, list[RecommendationResult]]:
+        taxonomy = self.repository.load_taxonomy(taxonomy_path)
+        engine = HeuristicScoringEngine(taxonomy)
         manuscript = self.parser.parse(
             manuscript_path,
             title=title,
@@ -34,6 +61,7 @@ class JournalRecommendationAgent:
             keywords=keywords,
             discipline=discipline,
         )
+        manuscript = engine.enrich_manuscript(manuscript)
         journals = self.repository.load_journals(dataset_path)
         journals = self._select_candidate_journals(journals, manuscript, discipline=discipline)
         if not journals:
@@ -41,8 +69,6 @@ class JournalRecommendationAgent:
                 "No candidate journals remain after language filtering. "
                 "Check that the dataset contains journals in the manuscript language."
             )
-        taxonomy = self.repository.load_taxonomy(taxonomy_path)
-        engine = HeuristicScoringEngine(taxonomy)
         recommendations = engine.score(manuscript, journals)
         return manuscript, recommendations[:top_k]
 
@@ -67,22 +93,32 @@ class JournalRecommendationAgent:
         discipline: str,
     ) -> list:
         manuscript_language = manuscript.language
-        candidates = []
+        broad_candidates = []
+        narrow_candidates = []
+        legal_focus = manuscript.legal_topic_score >= 0.55
         for journal in journals:
             journal_language = self._journal_language(journal)
             if manuscript_language == "zh":
                 if journal_language != "zh":
                     continue
-                candidates.append(journal)
+                broad_candidates.append(journal)
+                if self._is_law_related_journal(journal):
+                    narrow_candidates.append(journal)
                 continue
             if manuscript_language == "en":
                 if journal_language != "en":
                     continue
                 if self._is_humanities_social_sciences(journal) or journal.discipline == discipline or self._is_ssci(journal):
-                    candidates.append(journal)
+                    broad_candidates.append(journal)
+                if self._is_law_related_journal(journal):
+                    narrow_candidates.append(journal)
                 continue
-            candidates.append(journal)
-        return candidates
+            broad_candidates.append(journal)
+            if self._is_law_related_journal(journal):
+                narrow_candidates.append(journal)
+        if legal_focus and narrow_candidates:
+            return narrow_candidates
+        return broad_candidates
 
     def _journal_language(self, journal) -> str:
         if journal.language:
@@ -118,3 +154,19 @@ class JournalRecommendationAgent:
             return True
         index_set = {item.strip().upper() for item in journal.indexing}
         return bool(index_set.intersection({"SSCI", "AHCI", "ESCI"}))
+
+    def _is_law_related_journal(self, journal) -> bool:
+        journal_text = " ".join(
+            [
+                journal.title,
+                journal.discipline or "",
+                " ".join(journal.subdisciplines),
+                " ".join(journal.keywords),
+                journal.aims_and_scope,
+            ]
+        ).lower()
+        if any(term in journal_text for term in DIRECT_LAW_JOURNAL_TERMS):
+            return True
+        if any(term in journal_text for term in LAW_ADJACENT_JOURNAL_TERMS):
+            return True
+        return False
