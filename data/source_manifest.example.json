@@ -1,6 +1,26 @@
 {
   "sources": [
     {
+      "name": "clarivate_mjl_export",
+      "type": "clarivate_mjl_csv",
+      "path": "import/clarivate_master_journal_list.csv",
+      "delimiter": ",",
+      "field_mapping": {
+        "title": "Journal name",
+        "website": "Journal website",
+        "publisher": "Publisher",
+        "discipline": "Web of Science Categories",
+        "language": "Languages",
+        "jcr_quartile": "Journal Impact Factor Quartile",
+        "impact_factor": "Journal Impact Factor",
+        "aims_and_scope": "Aims & Scope"
+      },
+      "static_fields": {
+        "indexing": ["SSCI", "AHCI", "ESCI"],
+        "source_tags": ["clarivate_master_journal_list"]
+      }
+    },
+    {
       "name": "ssci_all_export",
       "type": "csv",
       "path": "import/ssci_all_export.csv",

@@ -85,6 +85,25 @@ class CsvSource(JournalSource):
         return records
 
 
+class ClarivateMjlCsvSource(CsvSource):
+    DEFAULT_FIELD_MAPPING = {
+        "title": "Journal name",
+        "website": "Journal website",
+        "publisher": "Publisher",
+        "discipline": "Web of Science Categories",
+        "language": "Languages",
+        "jcr_quartile": "Journal Impact Factor Quartile",
+        "impact_factor": "Journal Impact Factor",
+    }
+
+    def fetch(self) -> list[JournalProfile]:
+        self.config.setdefault("field_mapping", self.DEFAULT_FIELD_MAPPING)
+        self.config.setdefault("static_fields", {})
+        static_fields = self.config["static_fields"]
+        static_fields.setdefault("source_tags", ["clarivate_master_journal_list"])
+        return super().fetch()
+
+
 class HtmlListSource(JournalSource):
     def fetch(self) -> list[JournalProfile]:
         response = requests.get(self.config["url"], timeout=30)
@@ -123,6 +142,7 @@ class DatasetBuilder:
     SOURCE_TYPES = {
         "json": JsonSource,
         "csv": CsvSource,
+        "clarivate_mjl_csv": ClarivateMjlCsvSource,
         "html_list": HtmlListSource,
     }
 
