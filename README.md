@@ -7,7 +7,8 @@ Current capabilities:
 - Parse manuscript content from `docx`, `txt`, or direct CLI input.
 - Detect manuscript language and keep Chinese and English recommendation pools separate.
 - Remove reference sections from the ranking text and isolate Word footnotes from the main body.
-- Build a normalized journal knowledge base from JSON, CSV, or HTML source manifests.
+- Build journal portraits directly from the local SSCI CSV in `data/`.
+- Optionally export a normalized journal dataset from local CSV or JSON source manifests.
 - Score journals from three fit dimensions:
   - content fit
   - methodology fit
@@ -25,7 +26,7 @@ Current capabilities:
 Important note:
 
 - This repository ships with a seed law-journal dataset for local testing.
-- Real JCR, CSSCI, and PKU core data should be refreshed through official exports or source-specific crawlers because those lists change over time and some sources are access-controlled.
+- The current default English-journal workflow no longer depends on crawling legal-journal sites. It reads `data/Social Sciences Citation Index (SSCI).csv`, then generates journal portraits from SSCI metadata and category lookup rules.
 
 ## Project layout
 
@@ -59,7 +60,7 @@ Create recommendations from a manuscript file:
 ```bash
 python -m journal_agent recommend ^
   --manuscript data/sample_manuscript.txt ^
-  --dataset data/legal_journals.seed.json ^
+  --dataset "data/Social Sciences Citation Index (SSCI).csv" ^
   --taxonomy data/law_taxonomy.json ^
   --output output/recommendations.csv ^
   --top-k 10
@@ -72,15 +73,15 @@ python -m journal_agent recommend ^
   --title "Platform governance and algorithmic due process" ^
   --abstract "This article studies due process obligations in platform governance..." ^
   --keywords "platform governance; algorithm; due process; digital regulation" ^
-  --dataset data/legal_journals.seed.json ^
+  --dataset "data/Social Sciences Citation Index (SSCI).csv" ^
   --taxonomy data/law_taxonomy.json
 ```
 
-Build a merged journal dataset from a manifest:
+If you still want to export a normalized dataset JSON from the local SSCI CSV:
 
 ```bash
 python -m journal_agent crawl ^
-  --manifest data/source_manifest.example.json ^
+  --manifest data/source_manifest.ssci.json ^
   --output data/legal_journals.collected.json
 ```
 
@@ -90,14 +91,6 @@ For a local smoke test without external sources:
 python -m journal_agent crawl ^
   --manifest data/source_manifest.demo.json ^
   --output data/legal_journals.demo_output.json
-```
-
-If you have uploaded an SSCI CSV export (for example `data/Social Sciences Citation Index (SSCI).csv`), use:
-
-```bash
-python -m journal_agent crawl ^
-  --manifest data/source_manifest.ssci.json ^
-  --output data/legal_journals.collected.json
 ```
 
 ## How ranking works
@@ -121,21 +114,36 @@ The default ranking engine uses a hybrid heuristic approach that is easy to insp
    - `match_probability`
    - plain-language rationale
 
-## Data collection strategy
+## Data flow
 
-The source manifest system lets you mix multiple source types:
+The current default English-journal pipeline is:
+
+1. Read journal names and metadata from `data/Social Sciences Citation Index (SSCI).csv`.
+2. Generate a journal portrait for each title from:
+   - journal title
+   - language
+   - publisher
+   - Web of Science categories
+   - ISSN / eISSN
+3. Map SSCI categories into:
+   - subdisciplines
+   - keywords
+   - methodology preferences
+   - editorial preferences
+4. Use the generated portrait directly in recommendation.
+
+The source manifest system is still available when you want to export or merge local datasets. It supports:
 
 - `json`: load normalized journal records directly.
-- `csv`: import exported tables, useful for JCR or manual PKU core lists.
-- `html_list`: crawl public listing pages with CSS selectors.
+- `csv`: import local CSV tables.
+- `ssci_csv_lookup`: read the uploaded SSCI CSV and generate journal portraits without crawling.
 
 Suggested real-world workflow:
 
-1. Use official or licensed exports for all eligible `SSCI` journals if you want English manuscripts to consider the full SSCI candidate pool.
-2. Use official or licensed exports for JCR law journals.
-3. Use official or institution-maintained pages for CSSCI law journals where crawling is permitted.
-4. Use manually curated CSV imports for PKU core law journals if no stable public machine-readable source exists.
-5. Merge everything into one normalized dataset, then run recommendation.
+1. Keep `data/Social Sciences Citation Index (SSCI).csv` up to date.
+2. Run recommendation directly against that CSV for English manuscripts.
+3. If needed, export a normalized JSON snapshot through `data/source_manifest.ssci.json`.
+4. For Chinese journals, use local CSV or JSON imports instead of crawler-dependent flows.
 
 Candidate policy in the current implementation:
 

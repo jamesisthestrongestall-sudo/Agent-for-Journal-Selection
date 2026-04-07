@@ -22,24 +22,11 @@
     },
     {
       "name": "ssci_all_export",
-      "type": "csv",
+      "type": "ssci_csv_lookup",
       "path": "import/ssci_all_export.csv",
-      "delimiter": ",",
-      "field_mapping": {
-        "title": "journal_title",
-        "website": "website",
-        "publisher": "publisher",
-        "discipline": "discipline",
-        "language": "language",
-        "jcr_quartile": "jcr_quartile",
-        "impact_factor": "impact_factor",
-        "review_cycle_months": "review_cycle_months",
-        "acceptance_rate": "acceptance_rate",
-        "aims_and_scope": "aims_and_scope"
-      },
       "static_fields": {
         "indexing": ["SSCI"],
-        "source_tags": ["ssci_export_all"]
+        "source_tags": ["ssci_export_all", "ssci_local_csv"]
       }
     },
     {
@@ -65,21 +52,23 @@
       }
     },
     {
-      "name": "cssci_law_page",
-      "type": "html_list",
-      "url": "https://cssrac.nju.edu.cn/",
-      "item_selector": "table tbody tr",
+      "name": "cssci_law_csv",
+      "type": "csv",
+      "path": "import/cssci_law.csv",
+      "delimiter": ",",
       "field_mapping": {
-        "title": "td:nth-child(1)",
-        "publisher": "td:nth-child(2)"
+        "title": "title",
+        "publisher": "publisher",
+        "website": "website",
+        "aims_and_scope": "aims_and_scope",
+        "keywords": "keywords"
       },
       "static_fields": {
         "discipline": "law",
         "language": "zh",
         "indexing": ["CSSCI"],
-        "source_tags": ["cssci_html"]
-      },
-      "notes": "Adjust selectors to the real law-journal page structure before production use."
+        "source_tags": ["cssci_manual_csv"]
+      }
     },
     {
       "name": "pku_core_law_manual",

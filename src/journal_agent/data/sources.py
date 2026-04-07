@@ -11,7 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from journal_agent.models.schemas import JournalProfile
-from journal_agent.utils.text_processing import normalize_space, normalize_title_key, parse_keyword_string
+from journal_agent.utils.text_processing import extract_candidate_terms, normalize_space, normalize_title_key, parse_keyword_string
 
 
 def _apply_field_mapping(raw_record: dict[str, Any], field_mapping: dict[str, str]) -> dict[str, Any]:
@@ -32,6 +32,32 @@ def _coerce_list(value: Any) -> list[str]:
 def _coerce_float(value: Any) -> float | None:
     if value in (None, ""):
         return None
+
+
+def _normalize_language_name(value: str | None) -> str | None:
+    normalized = normalize_space(value)
+    if not normalized:
+        return None
+    lowered = normalized.lower()
+    if "english" in lowered:
+        return "en"
+    if "chinese" in lowered:
+        return "zh"
+    return normalized
+
+
+def _split_categories(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [normalize_space(item) for item in value.split("|") if normalize_space(item)]
+
+
+def _extract_country(address: str | None) -> str | None:
+    normalized = normalize_space(address)
+    if not normalized:
+        return None
+    parts = [part.strip() for part in normalized.split(",") if part.strip()]
+    return parts[-2] if len(parts) >= 2 else parts[-1]
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -104,6 +130,173 @@ class ClarivateMjlCsvSource(CsvSource):
         return super().fetch()
 
 
+class SsciCsvLookupSource(CsvSource):
+    DEFAULT_FIELD_MAPPING = {
+        "title": "Journal title",
+        "issn": "ISSN",
+        "eissn": "eISSN",
+        "publisher": "Publisher name",
+        "language": "Languages",
+        "discipline": "Web of Science Categories",
+    }
+    CATEGORY_RULES = {
+        "law": {
+            "methodology_preferences": ["doctrinal", "comparative", "empirical"],
+            "editorial_preferences": ["theoretical_innovation", "judicial_practice", "legislation_policy"],
+            "keywords": ["law", "legal studies", "regulation", "judicial", "comparative law"],
+        },
+        "criminology": {
+            "methodology_preferences": ["empirical", "qualitative", "quantitative"],
+            "editorial_preferences": ["criminal_justice", "judicial_practice"],
+            "keywords": ["crime", "criminal justice", "penology", "policing"],
+        },
+        "political science": {
+            "methodology_preferences": ["comparative", "qualitative", "empirical"],
+            "editorial_preferences": ["legislation_policy", "international_rule_of_law", "regional_china"],
+            "keywords": ["governance", "public policy", "state", "institutions"],
+        },
+        "public administration": {
+            "methodology_preferences": ["empirical", "qualitative", "interdisciplinary"],
+            "editorial_preferences": ["legislation_policy", "regional_china"],
+            "keywords": ["governance", "public administration", "policy", "institutions"],
+        },
+        "international relations": {
+            "methodology_preferences": ["comparative", "qualitative", "historical"],
+            "editorial_preferences": ["international_rule_of_law", "regional_china"],
+            "keywords": ["international relations", "global governance", "transnational", "institutions"],
+        },
+        "communication": {
+            "methodology_preferences": ["empirical", "qualitative", "interdisciplinary"],
+            "editorial_preferences": ["digital_governance", "theoretical_innovation"],
+            "keywords": ["communication", "digital media", "platforms", "algorithms"],
+        },
+        "business": {
+            "methodology_preferences": ["empirical", "quantitative", "interdisciplinary"],
+            "editorial_preferences": ["commercial_finance", "legislation_policy"],
+            "keywords": ["business", "management", "governance", "strategy"],
+        },
+        "management": {
+            "methodology_preferences": ["empirical", "quantitative", "interdisciplinary"],
+            "editorial_preferences": ["commercial_finance", "legislation_policy"],
+            "keywords": ["management", "organizations", "governance", "institutions"],
+        },
+        "finance": {
+            "methodology_preferences": ["empirical", "quantitative"],
+            "editorial_preferences": ["commercial_finance"],
+            "keywords": ["finance", "markets", "regulation", "corporate governance"],
+        },
+        "sociology": {
+            "methodology_preferences": ["qualitative", "empirical", "interdisciplinary"],
+            "editorial_preferences": ["theoretical_innovation", "regional_china"],
+            "keywords": ["society", "institutions", "governance", "inequality"],
+        },
+        "psychology": {
+            "methodology_preferences": ["empirical", "quantitative", "qualitative"],
+            "editorial_preferences": ["theoretical_innovation"],
+            "keywords": ["behavior", "decision making", "social cognition"],
+        },
+        "education": {
+            "methodology_preferences": ["empirical", "qualitative", "interdisciplinary"],
+            "editorial_preferences": ["regional_china", "theoretical_innovation"],
+            "keywords": ["education", "learning", "institutions", "policy"],
+        },
+        "philosophy": {
+            "methodology_preferences": ["historical", "doctrinal", "qualitative"],
+            "editorial_preferences": ["theoretical_innovation"],
+            "keywords": ["theory", "ethics", "philosophy", "history"],
+        },
+        "history": {
+            "methodology_preferences": ["historical", "qualitative"],
+            "editorial_preferences": ["theoretical_innovation", "regional_china"],
+            "keywords": ["history", "institutions", "archives", "historical analysis"],
+        },
+    }
+
+    def fetch(self) -> list[JournalProfile]:
+        path = (self.base_dir / self.config["path"]).resolve()
+        delimiter = self.config.get("delimiter", ",")
+        records: list[JournalProfile] = []
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle, delimiter=delimiter)
+            for row in reader:
+                records.append(self._build_profile(self._lookup_profile(row)))
+        return records
+
+    def _lookup_profile(self, row: dict[str, Any]) -> dict[str, Any]:
+        title = normalize_space(row.get("Journal title"))
+        publisher = normalize_space(row.get("Publisher name"))
+        publisher_address = normalize_space(row.get("Publisher address"))
+        categories = _split_categories(row.get("Web of Science Categories"))
+        language = _normalize_language_name(row.get("Languages"))
+        keywords = self._derive_keywords(title, categories)
+        methodology_preferences = self._derive_preferences(categories, "methodology_preferences")
+        editorial_preferences = self._derive_preferences(categories, "editorial_preferences")
+        aims_and_scope = self._build_aims_scope(title, publisher, language, categories, keywords)
+        notes = (
+            "Portrait generated from SSCI CSV metadata and category lookup rules. "
+            "Use external enrichment later if you need publisher website, review cycle, or acceptance rate."
+        )
+        return {
+            "title": title,
+            "issn": normalize_space(row.get("ISSN")),
+            "eissn": normalize_space(row.get("eISSN")),
+            "publisher": publisher,
+            "country": _extract_country(publisher_address),
+            "language": language,
+            "discipline": categories[0] if categories else "social sciences",
+            "subdisciplines": categories,
+            "keywords": keywords,
+            "methodology_preferences": methodology_preferences,
+            "editorial_preferences": editorial_preferences,
+            "aims_and_scope": aims_and_scope,
+            "indexing": ["SSCI"],
+            "source_tags": ["ssci_csv_lookup", "ssci_local_csv"],
+            "notes": notes,
+        }
+
+    def _derive_keywords(self, title: str, categories: list[str]) -> list[str]:
+        title_terms = extract_candidate_terms(title, top_k=8)
+        category_terms: list[str] = []
+        for category in categories:
+            lowered = category.lower()
+            for key, rule in self.CATEGORY_RULES.items():
+                if key in lowered:
+                    category_terms.extend(rule["keywords"])
+        raw_keywords = [*title_terms, *categories, *category_terms]
+        return list(dict.fromkeys(item for item in raw_keywords if normalize_space(item)))[:15]
+
+    def _derive_preferences(self, categories: list[str], target_key: str) -> list[str]:
+        collected: list[str] = []
+        for category in categories:
+            lowered = category.lower()
+            for key, rule in self.CATEGORY_RULES.items():
+                if key in lowered:
+                    collected.extend(rule[target_key])
+        if not collected and target_key == "methodology_preferences":
+            collected = ["empirical", "interdisciplinary"]
+        if not collected and target_key == "editorial_preferences":
+            collected = ["theoretical_innovation"]
+        return list(dict.fromkeys(collected))
+
+    def _build_aims_scope(
+        self,
+        title: str,
+        publisher: str,
+        language: str | None,
+        categories: list[str],
+        keywords: list[str],
+    ) -> str:
+        category_text = ", ".join(categories[:4]) if categories else "social science research"
+        keyword_text = ", ".join(keywords[:6]) if keywords else "interdisciplinary social-science topics"
+        language_text = "English" if language == "en" else ("Chinese" if language == "zh" else (language or "not specified"))
+        publisher_text = publisher or "an indexed publisher"
+        return (
+            f"{title} is an SSCI-indexed journal published by {publisher_text}. "
+            f"Based on Web of Science categories {category_text}, its profile centers on {keyword_text}. "
+            f"Primary publication language: {language_text}."
+        )
+
+
 class HtmlListSource(JournalSource):
     def fetch(self) -> list[JournalProfile]:
         response = requests.get(self.config["url"], timeout=30)
@@ -143,6 +336,7 @@ class DatasetBuilder:
         "json": JsonSource,
         "csv": CsvSource,
         "clarivate_mjl_csv": ClarivateMjlCsvSource,
+        "ssci_csv_lookup": SsciCsvLookupSource,
         "html_list": HtmlListSource,
     }
 
@@ -167,6 +361,15 @@ class DatasetBuilder:
         path.parent.mkdir(parents=True, exist_ok=True)
         serialized = [profile.model_dump(mode="json") for profile in profiles]
         path.write_text(json.dumps(serialized, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def build_from_ssci_csv(self, csv_path: str | Path) -> list[JournalProfile]:
+        path = Path(csv_path)
+        config = {
+            "type": "ssci_csv_lookup",
+            "path": path.name,
+        }
+        source = SsciCsvLookupSource(config, path.parent)
+        return source.fetch()
 
     def _merge(self, current: JournalProfile | None, incoming: JournalProfile) -> JournalProfile:
         if current is None:

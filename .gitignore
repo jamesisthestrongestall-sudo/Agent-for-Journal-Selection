@@ -4,6 +4,7 @@ __pycache__/
 .egg-info/
 src/*.egg-info/
 data/*.demo_output.json
+data/*.generated.json
 output/*.csv
 output/*.json
 data/import/

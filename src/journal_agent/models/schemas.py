@@ -19,6 +19,8 @@ class JournalProfile(BaseModel):
 
     journal_id: str | None = None
     title: str
+    issn: str | None = None
+    eissn: str | None = None
     discipline: str = "law"
     subdisciplines: list[str] = Field(default_factory=list)
     language: str | None = None
@@ -92,6 +94,8 @@ class RecommendationResult(BaseModel):
     def as_csv_row(self) -> dict[str, Any]:
         return {
             "journal_name": self.journal.title,
+            "issn": self.journal.issn or "",
+            "eissn": self.journal.eissn or "",
             "journal_language": self.journal.language or "",
             "website": self.journal.website or "",
             "publisher": self.journal.publisher or "",
