@@ -1,0 +1,83 @@
+{
+  "sources": [
+    {
+      "name": "ssci_all_export",
+      "type": "csv",
+      "path": "import/ssci_all_export.csv",
+      "delimiter": ",",
+      "field_mapping": {
+        "title": "journal_title",
+        "website": "website",
+        "publisher": "publisher",
+        "discipline": "discipline",
+        "language": "language",
+        "jcr_quartile": "jcr_quartile",
+        "impact_factor": "impact_factor",
+        "review_cycle_months": "review_cycle_months",
+        "acceptance_rate": "acceptance_rate",
+        "aims_and_scope": "aims_and_scope"
+      },
+      "static_fields": {
+        "indexing": ["SSCI"],
+        "source_tags": ["ssci_export_all"]
+      }
+    },
+    {
+      "name": "jcr_law_export",
+      "type": "csv",
+      "path": "import/jcr_law_export.csv",
+      "delimiter": ",",
+      "field_mapping": {
+        "title": "journal_title",
+        "website": "website",
+        "publisher": "publisher",
+        "jcr_quartile": "jcr_quartile",
+        "impact_factor": "impact_factor",
+        "review_cycle_months": "review_cycle_months",
+        "acceptance_rate": "acceptance_rate",
+        "aims_and_scope": "aims_and_scope"
+      },
+      "static_fields": {
+        "discipline": "law",
+        "language": "en",
+        "indexing": ["JCR"],
+        "source_tags": ["jcr_export"]
+      }
+    },
+    {
+      "name": "cssci_law_page",
+      "type": "html_list",
+      "url": "https://cssrac.nju.edu.cn/",
+      "item_selector": "table tbody tr",
+      "field_mapping": {
+        "title": "td:nth-child(1)",
+        "publisher": "td:nth-child(2)"
+      },
+      "static_fields": {
+        "discipline": "law",
+        "language": "zh",
+        "indexing": ["CSSCI"],
+        "source_tags": ["cssci_html"]
+      },
+      "notes": "Adjust selectors to the real law-journal page structure before production use."
+    },
+    {
+      "name": "pku_core_law_manual",
+      "type": "csv",
+      "path": "import/pku_core_law.csv",
+      "delimiter": ",",
+      "field_mapping": {
+        "title": "title",
+        "website": "website",
+        "publisher": "publisher",
+        "aims_and_scope": "aims_and_scope"
+      },
+      "static_fields": {
+        "discipline": "law",
+        "language": "zh",
+        "indexing": ["北大核心"],
+        "source_tags": ["manual_import"]
+      }
+    }
+  ]
+}

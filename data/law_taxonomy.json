@@ -1,0 +1,75 @@
+{
+  "discipline": "law",
+  "methodologies": [
+    {
+      "name": "doctrinal",
+      "aliases": ["法解释学", "规范分析", "教义学", "体系解释", "法理分析", "doctrinal", "normative", "interpretation"]
+    },
+    {
+      "name": "empirical",
+      "aliases": ["实证", "问卷", "统计", "数据分析", "样本", "survey", "empirical", "dataset"]
+    },
+    {
+      "name": "quantitative",
+      "aliases": ["回归", "计量", "模型", "量化", "regression", "quantitative"]
+    },
+    {
+      "name": "qualitative",
+      "aliases": ["访谈", "文本分析", "田野", "扎根理论", "qualitative", "interview"]
+    },
+    {
+      "name": "comparative",
+      "aliases": ["比较法", "域外", "比较研究", "cross-jurisdiction", "comparative", "foreign law"]
+    },
+    {
+      "name": "case_study",
+      "aliases": ["案例", "判例", "个案", "裁判文书", "case study", "case analysis"]
+    },
+    {
+      "name": "historical",
+      "aliases": ["历史", "沿革", "史料", "演变", "genealogy", "historical"]
+    },
+    {
+      "name": "interdisciplinary",
+      "aliases": ["人工智能", "数据治理", "平台治理", "经济学", "社会学", "心理学", "interdisciplinary", "law and technology"]
+    }
+  ],
+  "editorial_signals": [
+    {
+      "name": "theoretical_innovation",
+      "aliases": ["法理", "理论", "范式", "体系建构", "conceptual", "theory"]
+    },
+    {
+      "name": "judicial_practice",
+      "aliases": ["司法实践", "法院", "裁判", "审判", "判决", "案例指导", "judicial"]
+    },
+    {
+      "name": "legislation_policy",
+      "aliases": ["立法", "规制", "政策", "制度建设", "法治政府", "regulation", "policy"]
+    },
+    {
+      "name": "digital_governance",
+      "aliases": ["算法", "平台", "网络安全", "数字治理", "数据合规", "人工智能", "digital", "platform"]
+    },
+    {
+      "name": "international_rule_of_law",
+      "aliases": ["国际法", "条约", "全球治理", "国际秩序", "人权", "transnational", "international"]
+    },
+    {
+      "name": "commercial_finance",
+      "aliases": ["公司法", "证券", "金融监管", "商法", "破产", "税法", "corporate", "finance"]
+    },
+    {
+      "name": "criminal_justice",
+      "aliases": ["刑法", "犯罪", "量刑", "检察", "侦查", "criminal justice"]
+    },
+    {
+      "name": "civil_social",
+      "aliases": ["民法", "人格权", "婚姻家事", "劳动法", "社会保障", "civil law"]
+    },
+    {
+      "name": "regional_china",
+      "aliases": ["中国法治", "中国经验", "本土化", "中国式现代化", "China"]
+    }
+  ]
+}

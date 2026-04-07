@@ -1,0 +1,9 @@
+{
+  "sources": [
+    {
+      "name": "seed_json_demo",
+      "type": "json",
+      "path": "legal_journals.seed.json"
+    }
+  ]
+}

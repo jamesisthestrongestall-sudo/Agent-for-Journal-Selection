@@ -1,0 +1,14 @@
+Platform Governance, Algorithmic Transparency, and Due Process
+
+Abstract: This article studies how large online platforms should satisfy due process requirements when they use automated moderation and ranking systems. Combining doctrinal analysis, comparative research, and case-based discussion, the manuscript evaluates notice, explanation, appeal, and accountability obligations in platform governance. The article further discusses how Chinese digital regulation can incorporate lessons from the European Union and the United States while preserving domestic regulatory priorities.
+
+Keywords: platform governance; algorithmic transparency; due process; digital regulation; comparative law
+
+1. Introduction
+The governance of algorithmic decision-making on large online platforms has become a central issue in contemporary digital regulation. Existing discussions often separate private governance from public-law due process, yet the operational effects on users resemble regulatory adjudication in important ways.
+
+2. Research design
+This paper uses doctrinal analysis, comparative law, and selected case studies involving content moderation, account suspension, and recommender systems.
+
+3. Main argument
+The article argues that transparency should not be reduced to source-code disclosure. Instead, platforms should provide layered explanation, contestation channels, and procedural safeguards proportionate to the severity of downstream consequences.

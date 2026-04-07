@@ -1,0 +1,321 @@
+[
+  {
+    "title": "中国法学",
+    "discipline": "law",
+    "subdisciplines": ["法理学", "宪法与行政法", "民商法", "刑法", "诉讼法"],
+    "language": "zh",
+    "publisher": "中国法学会",
+    "aims_and_scope": "关注中国法治建设中的重大理论与制度问题，强调法学基础理论、制度创新、立法与司法实践的高质量研究。",
+    "keywords": ["中国法治", "法理", "制度创新", "立法", "司法"],
+    "methodology_preferences": ["doctrinal", "comparative", "interdisciplinary"],
+    "editorial_preferences": ["theoretical_innovation", "regional_china", "legislation_policy"],
+    "indexing": ["CSSCI", "北大核心"],
+    "recent_articles": [
+      {
+        "title": "数字平台治理中的公私法边界",
+        "keywords": ["平台治理", "数字法治", "公私法"],
+        "abstract_snippet": "讨论数字平台在公共治理中的规范定位及其制度边界。"
+      },
+      {
+        "title": "中国式现代化语境下的法治国家建设",
+        "keywords": ["法治国家", "中国式现代化"],
+        "abstract_snippet": "从制度与理论双重维度分析法治中国建设。"
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  },
+  {
+    "title": "法学研究",
+    "discipline": "law",
+    "subdisciplines": ["法理学", "宪法学", "部门法"],
+    "language": "zh",
+    "publisher": "中国社会科学院法学研究所",
+    "aims_and_scope": "强调法学原创性研究与体系化表达，覆盖基础理论、部门法研究及重大现实法治议题。",
+    "keywords": ["法理学", "体系化", "法治", "部门法"],
+    "methodology_preferences": ["doctrinal", "historical", "comparative"],
+    "editorial_preferences": ["theoretical_innovation", "regional_china"],
+    "indexing": ["CSSCI", "北大核心"],
+    "recent_articles": [
+      {
+        "title": "算法治理的法理结构",
+        "keywords": ["算法", "法理", "治理"],
+        "abstract_snippet": "从法理学视角分析算法治理规则结构。"
+      },
+      {
+        "title": "行政法上的比例原则与数字监管",
+        "keywords": ["比例原则", "数字监管", "行政法"],
+        "abstract_snippet": "探讨比例原则在数字时代监管中的适用。"
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  },
+  {
+    "title": "中外法学",
+    "discipline": "law",
+    "subdisciplines": ["比较法", "国际法", "部门法"],
+    "language": "zh",
+    "publisher": "北京大学法学院",
+    "aims_and_scope": "强调中外法学对话、比较法研究与跨法域制度借鉴，鼓励具有国际视野的法学研究。",
+    "keywords": ["比较法", "国际视野", "制度借鉴", "域外法"],
+    "methodology_preferences": ["comparative", "doctrinal", "interdisciplinary"],
+    "editorial_preferences": ["international_rule_of_law", "theoretical_innovation"],
+    "indexing": ["CSSCI", "北大核心"],
+    "recent_articles": [
+      {
+        "title": "平台合规的欧盟路径与中国启示",
+        "keywords": ["平台合规", "欧盟法", "比较法"],
+        "abstract_snippet": "通过跨法域比较分析平台合规义务。"
+      },
+      {
+        "title": "人工智能责任规则的比较法展开",
+        "keywords": ["人工智能", "责任法", "比较法"],
+        "abstract_snippet": "梳理主要法域人工智能侵权责任制度。"
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  },
+  {
+    "title": "法商研究",
+    "discipline": "law",
+    "subdisciplines": ["商法", "经济法", "金融法"],
+    "language": "zh",
+    "publisher": "中南财经政法大学",
+    "aims_and_scope": "聚焦商法、经济法、金融监管、市场秩序与企业治理等议题，重视制度设计与实践问题。",
+    "keywords": ["商法", "经济法", "公司治理", "金融监管"],
+    "methodology_preferences": ["doctrinal", "empirical", "comparative"],
+    "editorial_preferences": ["commercial_finance", "legislation_policy", "judicial_practice"],
+    "indexing": ["CSSCI", "北大核心"],
+    "recent_articles": [
+      {
+        "title": "平台经济中的竞争秩序与监管协同",
+        "keywords": ["平台经济", "竞争法", "监管"],
+        "abstract_snippet": "分析平台经济反垄断与行业监管衔接。"
+      },
+      {
+        "title": "公司法修订中的治理结构优化",
+        "keywords": ["公司法", "治理结构"],
+        "abstract_snippet": "讨论公司治理结构的制度更新。"
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  },
+  {
+    "title": "比较法研究",
+    "discipline": "law",
+    "subdisciplines": ["比较法", "国际私法", "法文化"],
+    "language": "zh",
+    "publisher": "中国政法大学比较法学研究院",
+    "aims_and_scope": "面向比较法、域外法与法律移植研究，强调不同法系制度比较、跨国规范流动与中国法治经验的对话。",
+    "keywords": ["比较法", "法律移植", "域外法", "法系"],
+    "methodology_preferences": ["comparative", "historical", "doctrinal"],
+    "editorial_preferences": ["international_rule_of_law", "regional_china"],
+    "indexing": ["CSSCI", "北大核心"],
+    "recent_articles": [
+      {
+        "title": "欧盟平台规制模式及其可移植性",
+        "keywords": ["欧盟", "平台规制", "法律移植"],
+        "abstract_snippet": "比较欧盟数字平台规制与中国制度选择。"
+      },
+      {
+        "title": "比较法方法在科技治理研究中的应用",
+        "keywords": ["比较法方法", "科技治理"],
+        "abstract_snippet": "反思比较法在新兴科技治理中的适用边界。"
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  },
+  {
+    "title": "Computer Law & Security Review",
+    "discipline": "law",
+    "subdisciplines": ["cyber law", "data protection", "platform regulation"],
+    "language": "en",
+    "publisher": "Elsevier",
+    "website": "https://www.sciencedirect.com/journal/computer-law-and-security-review",
+    "aims_and_scope": "Publishes research on information technology law, cybersecurity, data protection, digital regulation, and the legal governance of online platforms.",
+    "keywords": ["digital regulation", "platform governance", "cybersecurity", "data protection"],
+    "methodology_preferences": ["doctrinal", "comparative", "interdisciplinary"],
+    "editorial_preferences": ["digital_governance", "legislation_policy", "international_rule_of_law"],
+    "indexing": ["SSCI", "Scopus"],
+    "recent_articles": [
+      {
+        "title": "Procedural fairness in automated content moderation",
+        "keywords": ["content moderation", "procedural fairness"],
+        "abstract_snippet": "Examines due process analogies in platform moderation systems."
+      },
+      {
+        "title": "AI regulation and platform accountability",
+        "keywords": ["AI regulation", "platform accountability"],
+        "abstract_snippet": "Evaluates accountability models for algorithmic governance."
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  },
+  {
+    "title": "Journal of Empirical Legal Studies",
+    "discipline": "law",
+    "subdisciplines": ["empirical legal studies", "law and society", "judicial behavior"],
+    "language": "en",
+    "publisher": "Wiley",
+    "website": "https://onlinelibrary.wiley.com/journal/17401461",
+    "aims_and_scope": "Publishes empirical and quantitative studies of legal institutions, legal behavior, judicial processes, and regulatory outcomes.",
+    "keywords": ["empirical legal studies", "quantitative", "judicial behavior", "regulation"],
+    "methodology_preferences": ["empirical", "quantitative"],
+    "editorial_preferences": ["judicial_practice", "legislation_policy"],
+    "indexing": ["SSCI", "Scopus"],
+    "recent_articles": [
+      {
+        "title": "Measuring appellate review outcomes with machine learning",
+        "keywords": ["appellate review", "machine learning", "quantitative"],
+        "abstract_snippet": "Uses data-driven methods to study appellate behavior."
+      },
+      {
+        "title": "Empirical patterns in administrative enforcement",
+        "keywords": ["administrative enforcement", "empirical"],
+        "abstract_snippet": "Studies institutional enforcement with large-scale datasets."
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  },
+  {
+    "title": "Law & Society Review",
+    "discipline": "law",
+    "subdisciplines": ["law and society", "socio-legal studies", "legal institutions"],
+    "language": "en",
+    "publisher": "Law and Society Association",
+    "website": "https://www.lawandsociety.org/law-society-review/",
+    "aims_and_scope": "Publishes socio-legal scholarship on law in action, institutions, inequality, governance, and interdisciplinary legal research.",
+    "keywords": ["socio-legal", "institutions", "governance", "interdisciplinary"],
+    "methodology_preferences": ["qualitative", "empirical", "interdisciplinary"],
+    "editorial_preferences": ["judicial_practice", "regional_china", "theoretical_innovation"],
+    "indexing": ["SSCI", "Scopus"],
+    "recent_articles": [
+      {
+        "title": "Platform governance as private ordering",
+        "keywords": ["platform governance", "private ordering"],
+        "abstract_snippet": "Studies governance practices in large digital platforms."
+      },
+      {
+        "title": "Procedural justice in online dispute systems",
+        "keywords": ["procedural justice", "online dispute"],
+        "abstract_snippet": "Explores legal legitimacy in digital process design."
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  },
+  {
+    "title": "International & Comparative Law Quarterly",
+    "discipline": "law",
+    "subdisciplines": ["international law", "comparative law", "public law"],
+    "language": "en",
+    "publisher": "Cambridge University Press",
+    "website": "https://www.cambridge.org/core/journals/international-and-comparative-law-quarterly",
+    "aims_and_scope": "Publishes scholarship in public and private international law, comparative law, human rights, and transnational regulation.",
+    "keywords": ["international law", "comparative law", "transnational regulation", "human rights"],
+    "methodology_preferences": ["comparative", "doctrinal", "historical"],
+    "editorial_preferences": ["international_rule_of_law", "theoretical_innovation"],
+    "indexing": ["SSCI", "Scopus"],
+    "recent_articles": [
+      {
+        "title": "Transnational platform governance and public law values",
+        "keywords": ["transnational", "platform governance", "public law"],
+        "abstract_snippet": "Connects public law principles to transnational platform ordering."
+      },
+      {
+        "title": "Comparative constitutional responses to digital regulation",
+        "keywords": ["constitutional law", "digital regulation", "comparative"],
+        "abstract_snippet": "Surveys constitutional approaches to regulating digital spaces."
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  },
+  {
+    "title": "Human Rights Quarterly",
+    "discipline": "law",
+    "subdisciplines": ["human rights", "international law", "governance"],
+    "language": "en",
+    "publisher": "Johns Hopkins University Press",
+    "website": "https://muse.jhu.edu/journal/85",
+    "aims_and_scope": "Publishes interdisciplinary work on human rights theory, institutions, implementation, and global governance.",
+    "keywords": ["human rights", "global governance", "accountability", "institutions"],
+    "methodology_preferences": ["doctrinal", "qualitative", "interdisciplinary"],
+    "editorial_preferences": ["international_rule_of_law", "theoretical_innovation"],
+    "indexing": ["SSCI", "Scopus"],
+    "recent_articles": [
+      {
+        "title": "Digital rights and platform accountability",
+        "keywords": ["digital rights", "platform accountability"],
+        "abstract_snippet": "Analyzes rights-based approaches to online governance."
+      },
+      {
+        "title": "Procedural safeguards in global governance mechanisms",
+        "keywords": ["procedural safeguards", "global governance"],
+        "abstract_snippet": "Studies accountability design in supranational institutions."
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  },
+  {
+    "title": "Policy & Internet",
+    "discipline": "public_policy",
+    "subdisciplines": ["internet governance", "digital policy", "platform regulation"],
+    "language": "en",
+    "publisher": "Wiley",
+    "website": "https://onlinelibrary.wiley.com/journal/19442866",
+    "aims_and_scope": "Publishes interdisciplinary research on digital governance, internet policy, platform regulation, and the public-policy implications of emerging technologies.",
+    "keywords": ["internet governance", "digital policy", "platform regulation", "public policy"],
+    "methodology_preferences": ["empirical", "qualitative", "interdisciplinary"],
+    "editorial_preferences": ["digital_governance", "legislation_policy"],
+    "indexing": ["SSCI", "Scopus"],
+    "recent_articles": [
+      {
+        "title": "Platform accountability in digital public policy",
+        "keywords": ["platform accountability", "digital policy"],
+        "abstract_snippet": "Studies accountability obligations in platform governance."
+      },
+      {
+        "title": "Regulating automated moderation systems",
+        "keywords": ["content moderation", "regulation"],
+        "abstract_snippet": "Examines policy design for automated platform moderation."
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  },
+  {
+    "title": "New Media & Society",
+    "discipline": "media_studies",
+    "subdisciplines": ["platform studies", "digital governance", "communication policy"],
+    "language": "en",
+    "publisher": "SAGE",
+    "website": "https://journals.sagepub.com/home/nms",
+    "aims_and_scope": "Publishes interdisciplinary research on digital media, platforms, algorithms, governance, communication, and the social consequences of technological change.",
+    "keywords": ["platforms", "algorithms", "digital media", "governance"],
+    "methodology_preferences": ["qualitative", "empirical", "interdisciplinary"],
+    "editorial_preferences": ["digital_governance", "theoretical_innovation"],
+    "indexing": ["SSCI", "Scopus"],
+    "recent_articles": [
+      {
+        "title": "Algorithmic governance and platform power",
+        "keywords": ["algorithmic governance", "platform power"],
+        "abstract_snippet": "Explores governance structures in digital platform ecosystems."
+      },
+      {
+        "title": "Appeal systems in online moderation",
+        "keywords": ["appeal systems", "moderation"],
+        "abstract_snippet": "Analyzes procedural justice in online content governance."
+      }
+    ],
+    "source_tags": ["seed_example"],
+    "notes": "Seed data for local pipeline verification."
+  }
+]
