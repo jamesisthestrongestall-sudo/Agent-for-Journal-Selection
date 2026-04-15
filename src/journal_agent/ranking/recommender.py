@@ -6,7 +6,8 @@ from pathlib import Path
 from journal_agent.data.repository import JournalRepository
 from journal_agent.ingestion.manuscript_parser import ManuscriptParser
 from journal_agent.models.schemas import ManuscriptProfile, RecommendationResult
-from journal_agent.ranking.scoring import HeuristicScoringEngine
+from journal_agent.ranking.scoring import CorpusScoringEngine
+from journal_agent.ranking.supervised import SupervisedJournalRanker
 from journal_agent.utils.text_processing import detect_language
 
 
@@ -45,6 +46,7 @@ class JournalRecommendationAgent:
         *,
         dataset_path: str | Path,
         taxonomy_path: str | Path,
+        model_path: str | Path | None = None,
         manuscript_path: str | Path | None = None,
         title: str | None = None,
         abstract: str | None = None,
@@ -52,8 +54,6 @@ class JournalRecommendationAgent:
         discipline: str = "law",
         top_k: int = 15,
     ) -> tuple[ManuscriptProfile, list[RecommendationResult]]:
-        taxonomy = self.repository.load_taxonomy(taxonomy_path)
-        engine = HeuristicScoringEngine(taxonomy)
         manuscript = self.parser.parse(
             manuscript_path,
             title=title,
@@ -61,8 +61,21 @@ class JournalRecommendationAgent:
             keywords=keywords,
             discipline=discipline,
         )
+        journals = self.repository.load_journals(dataset_path, discipline=discipline)
+        if model_path:
+            ranker = SupervisedJournalRanker.load(model_path)
+            journals = self._select_candidate_journals(journals, manuscript, discipline=discipline)
+            if not journals:
+                raise ValueError(
+                    "No candidate journals remain after language filtering. "
+                    "Check that the dataset contains journals in the manuscript language."
+                )
+            recommendations = ranker.recommend(manuscript, candidate_journals=journals, top_k=top_k)
+            return manuscript, recommendations[:top_k]
+
+        taxonomy = self.repository.load_taxonomy(taxonomy_path)
+        engine = CorpusScoringEngine(taxonomy)
         manuscript = engine.enrich_manuscript(manuscript)
-        journals = self.repository.load_journals(dataset_path)
         journals = self._select_candidate_journals(journals, manuscript, discipline=discipline)
         if not journals:
             raise ValueError(
@@ -98,6 +111,14 @@ class JournalRecommendationAgent:
         legal_focus = manuscript.legal_topic_score >= 0.55
         for journal in journals:
             journal_language = self._journal_language(journal)
+            if discipline == "law":
+                if not self._is_law_related_journal(journal):
+                    continue
+                if manuscript_language in {"zh", "en"} and journal_language != manuscript_language:
+                    continue
+                broad_candidates.append(journal)
+                narrow_candidates.append(journal)
+                continue
             if manuscript_language == "zh":
                 if journal_language != "zh":
                     continue

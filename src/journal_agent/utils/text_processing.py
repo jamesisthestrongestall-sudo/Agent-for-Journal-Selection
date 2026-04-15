@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
+from typing import Iterable
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -85,6 +86,31 @@ def cosine_similarity_scores(query_text: str, documents: list[str]) -> list[floa
     return [float(score) for score in similarities]
 
 
+def hybrid_similarity_scores(query_text: str, documents: list[str]) -> list[float]:
+    if not normalize_space(query_text) or not documents:
+        return [0.0 for _ in documents]
+    cleaned_docs = [normalize_space(doc) or "empty" for doc in documents]
+    normalized_query = normalize_space(query_text)
+
+    char_vectorizer = TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5))
+    char_matrix = char_vectorizer.fit_transform([normalized_query] + cleaned_docs)
+    char_scores = cosine_similarity(char_matrix[0:1], char_matrix[1:]).flatten()
+
+    word_vectorizer = TfidfVectorizer(
+        analyzer="word",
+        tokenizer=lambda text: TOKEN_PATTERN.findall(normalize_space(text).lower()),
+        preprocessor=None,
+        lowercase=False,
+        token_pattern=None,
+        ngram_range=(1, 2),
+    )
+    word_matrix = word_vectorizer.fit_transform([normalized_query] + cleaned_docs)
+    word_scores = cosine_similarity(word_matrix[0:1], word_matrix[1:]).flatten()
+
+    blended = (0.45 * char_scores) + (0.55 * word_scores)
+    return [float(score) for score in blended]
+
+
 def clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
     return max(minimum, min(maximum, value))
 
@@ -94,3 +120,11 @@ def safe_mean(values: list[float], default: float = 0.0) -> float:
     if not filtered:
         return default
     return sum(filtered) / len(filtered)
+
+
+def top_k_mean(values: Iterable[float], k: int = 3, default: float = 0.0) -> float:
+    ordered = sorted((value for value in values if not math.isnan(value)), reverse=True)
+    if not ordered:
+        return default
+    top_values = ordered[: max(1, k)]
+    return sum(top_values) / len(top_values)

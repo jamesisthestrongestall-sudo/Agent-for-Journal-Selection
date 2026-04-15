@@ -8,4 +8,5 @@ data/*.demo_output.json
 data/*.generated.json
 output/*.csv
 output/*.json
+output/*.pkl
 data/import/

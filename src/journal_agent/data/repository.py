@@ -12,7 +12,7 @@ class JournalRepository:
     def load_journals(self, dataset_path: str | Path, *, discipline: str | None = None) -> list[JournalProfile]:
         path = Path(dataset_path)
         if path.suffix.lower() == ".csv":
-            journals = DatasetBuilder().build_from_ssci_csv(path)
+            journals = DatasetBuilder().build_from_ssci_csv(path, discipline=discipline)
         else:
             payload = json.loads(path.read_text(encoding="utf-8"))
             journals = [JournalProfile.model_validate(item) for item in payload]

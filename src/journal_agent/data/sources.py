@@ -39,6 +39,15 @@ def _coerce_float(value: Any) -> float | None:
         return None
 
 
+def _coerce_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _normalize_language_name(value: str | None) -> str | None:
     normalized = normalize_space(value)
     if not normalized:
@@ -65,6 +74,12 @@ def _extract_country(address: str | None) -> str | None:
     return parts[-2] if len(parts) >= 2 else parts[-1]
 
 
+def _matches_focus_categories(categories: list[str], focus_terms: list[str]) -> bool:
+    lowered_categories = [category.lower() for category in categories]
+    lowered_terms = [term.lower() for term in focus_terms if normalize_space(term)]
+    return any(term in category for category in lowered_categories for term in lowered_terms)
+
+
 class JournalSource(ABC):
     def __init__(self, config: dict[str, Any], base_dir: Path) -> None:
         self.config = config
@@ -84,6 +99,8 @@ class JournalSource(ABC):
         payload["editorial_preferences"] = _coerce_list(payload.get("editorial_preferences"))
         payload["source_tags"] = _coerce_list(payload.get("source_tags"))
         payload["impact_factor"] = _coerce_float(payload.get("impact_factor"))
+        payload["annual_publication_count"] = _coerce_int(payload.get("annual_publication_count"))
+        payload["annual_publication_count_year"] = _coerce_int(payload.get("annual_publication_count_year"))
         payload["review_cycle_months"] = _coerce_float(payload.get("review_cycle_months"))
         payload["acceptance_rate"] = _coerce_float(payload.get("acceptance_rate"))
         if not payload.get("journal_id") and payload.get("title"):
@@ -216,10 +233,14 @@ class SsciCsvLookupSource(CsvSource):
     def fetch(self) -> list[JournalProfile]:
         path = (self.base_dir / self.config["path"]).resolve()
         delimiter = self.config.get("delimiter", ",")
+        focus_terms = self._focus_terms()
         records: list[JournalProfile] = []
         with path.open("r", encoding="utf-8-sig", newline="") as handle:
             reader = csv.DictReader(handle, delimiter=delimiter)
             for row in reader:
+                categories = _split_categories(row.get("Web of Science Categories"))
+                if focus_terms and not _matches_focus_categories(categories, focus_terms):
+                    continue
                 records.append(self._build_profile(self._lookup_profile(row)))
         return records
 
@@ -233,10 +254,14 @@ class SsciCsvLookupSource(CsvSource):
         methodology_preferences = self._derive_preferences(categories, "methodology_preferences")
         editorial_preferences = self._derive_preferences(categories, "editorial_preferences")
         aims_and_scope = self._build_aims_scope(title, publisher, language, categories, keywords)
+        focus_terms = self._focus_terms()
+        focus_label = normalize_space(self.config.get("focus_label", "law")) if focus_terms else ""
         notes = (
             "Portrait generated from SSCI CSV metadata and category lookup rules. "
             "Use external enrichment later if you need publisher website, review cycle, or acceptance rate."
         )
+        if focus_terms:
+            notes = f"{notes} Filtered to SSCI focus categories: {', '.join(focus_terms)}."
         return {
             "title": title,
             "issn": normalize_space(row.get("ISSN")),
@@ -244,16 +269,22 @@ class SsciCsvLookupSource(CsvSource):
             "publisher": publisher,
             "country": _extract_country(publisher_address),
             "language": language,
-            "discipline": categories[0] if categories else "social sciences",
+            "discipline": focus_label or (categories[0] if categories else "social sciences"),
             "subdisciplines": categories,
             "keywords": keywords,
             "methodology_preferences": methodology_preferences,
             "editorial_preferences": editorial_preferences,
             "aims_and_scope": aims_and_scope,
             "indexing": ["SSCI"],
-            "source_tags": ["ssci_csv_lookup", "ssci_local_csv"],
+            "source_tags": ["ssci_csv_lookup", "ssci_local_csv", *(["ssci_focus_filtered"] if focus_terms else [])],
             "notes": notes,
         }
+
+    def _focus_terms(self) -> list[str]:
+        if self.config.get("law_only"):
+            return ["law"]
+        focus_terms = self.config.get("focus_category_terms", [])
+        return [normalize_space(term) for term in focus_terms if normalize_space(term)]
 
     def _derive_keywords(self, title: str, categories: list[str]) -> list[str]:
         title_terms = extract_candidate_terms(title, top_k=8)
@@ -384,12 +415,15 @@ class DatasetBuilder:
         serialized = [profile.model_dump(mode="json") for profile in profiles]
         path.write_text(json.dumps(serialized, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def build_from_ssci_csv(self, csv_path: str | Path) -> list[JournalProfile]:
+    def build_from_ssci_csv(self, csv_path: str | Path, *, discipline: str | None = None) -> list[JournalProfile]:
         path = Path(csv_path)
         config = {
             "type": "ssci_csv_lookup",
             "path": path.name,
         }
+        if discipline == "law":
+            config["law_only"] = True
+            config["focus_label"] = "law"
         source = SsciCsvLookupSource(config, path.parent)
         return source.fetch()
 

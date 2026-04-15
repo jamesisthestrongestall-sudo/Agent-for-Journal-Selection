@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -31,6 +32,15 @@ AIMS_LINK_PATTERN = re.compile(
     r"(aims?|scope|about|overview|journal-information|focus)",
     re.IGNORECASE,
 )
+ISSUES_LINK_PATTERN = re.compile(
+    r"(archive|issues?|all issues|volumes?|browse|contents|table of contents|current issue|articles?)",
+    re.IGNORECASE,
+)
+ARTICLE_URL_PATTERN = re.compile(
+    r"(article|articles|abs-|full/|/full$|/fulltext|doi|content/|chapter/|view/)",
+    re.IGNORECASE,
+)
+YEAR_PATTERN_TEMPLATE = r"(?<!\d){year}(?!\d)"
 
 
 def reconstruct_abstract(inverted_index: dict[str, list[int]] | None) -> str:
@@ -72,6 +82,39 @@ def _best_title_match(results: list[dict[str, Any]], title: str) -> dict[str, An
         None,
     )
     return prefix or results[0]
+
+
+def _safe_soup(html: str) -> BeautifulSoup | None:
+    try:
+        return BeautifulSoup(html, "html.parser")
+    except Exception:
+        return None
+
+
+def _choose_publication_count(
+    *,
+    site_count: int | None,
+    site_year: int | None,
+    openalex_count: int | None,
+    openalex_year: int | None,
+) -> tuple[int | None, int | None, str | None]:
+    if site_count is None and openalex_count is None:
+        return None, None, None
+    if site_count is None:
+        return openalex_count, openalex_year, "openalex_works_count"
+    if openalex_count is None:
+        return site_count, site_year, "journal_site_archive"
+    if site_count <= 0 and openalex_count >= 0:
+        return openalex_count, openalex_year, "openalex_works_count"
+    if openalex_count == 0:
+        if 0 < site_count <= 100:
+            return site_count, site_year, "journal_site_archive"
+        return openalex_count, openalex_year, "openalex_works_count"
+    if site_count > max(250, openalex_count * 3):
+        return openalex_count, openalex_year, "openalex_works_count"
+    if site_count < max(1, int(openalex_count * 0.35)):
+        return openalex_count, openalex_year, "openalex_works_count"
+    return site_count, site_year, "journal_site_archive"
 
 
 class OpenAlexClient:
@@ -140,6 +183,29 @@ class OpenAlexClient:
             )
         return articles
 
+    def fetch_annual_publication_count(
+        self,
+        *,
+        source_id: str,
+        end_date: date | None = None,
+    ) -> tuple[int | None, int | None]:
+        end_date = end_date or date.today()
+        start_date = end_date - timedelta(days=365)
+        payload = self._get_json(
+            "/works",
+            params={
+                "filter": (
+                    f"primary_location.source.id:{source_id},type:article,"
+                    f"from_publication_date:{start_date.isoformat()},to_publication_date:{end_date.isoformat()}"
+                ),
+                "per-page": 1,
+            },
+        )
+        count = (payload or {}).get("meta", {}).get("count")
+        if count is None:
+            return None, None
+        return int(count), end_date.year
+
     def _get_json(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
         response = self.session.get(f"{OPENALEX_API_BASE}{path}", params=params, timeout=self.timeout)
         if response.status_code == 404:
@@ -176,13 +242,70 @@ class JournalSiteCrawler:
             return extracted, homepage_url
         return None, None
 
+    def fetch_annual_publication_count(
+        self,
+        homepage_url: str | None,
+        *,
+        target_year: int | None = None,
+    ) -> tuple[int | None, int | None, str | None]:
+        if not normalize_space(homepage_url):
+            return None, None, None
+        homepage_url = normalize_space(homepage_url)
+        target_year = target_year or date.today().year
+        try:
+            homepage_html = self._get_html(homepage_url)
+        except requests.RequestException:
+            return None, None, None
+
+        archive_urls = self._discover_issue_candidate_urls(homepage_url, homepage_html)
+        year_pattern = re.compile(YEAR_PATTERN_TEMPLATE.format(year=target_year))
+        previous_year_pattern = re.compile(YEAR_PATTERN_TEMPLATE.format(year=target_year - 1))
+
+        best_count = 0
+        best_url: str | None = None
+        for archive_url in archive_urls[:4]:
+            try:
+                archive_html = self._get_html(archive_url)
+            except requests.RequestException:
+                continue
+            year_issue_urls = self._discover_year_issue_urls(
+                archive_url,
+                archive_html,
+                year_pattern=year_pattern,
+                previous_year_pattern=previous_year_pattern,
+            )
+            if not year_issue_urls:
+                article_links = self._extract_article_links(archive_url, archive_html)
+                if len(article_links) > best_count:
+                    best_count = len(article_links)
+                    best_url = archive_url
+                continue
+            year_article_links: set[str] = set()
+            for issue_url in year_issue_urls[:8]:
+                try:
+                    issue_html = self._get_html(issue_url)
+                except requests.RequestException:
+                    continue
+                year_article_links.update(self._extract_article_links(issue_url, issue_html))
+                if len(year_article_links) >= 24:
+                    break
+            if len(year_article_links) > best_count:
+                best_count = len(year_article_links)
+                best_url = archive_url
+
+        if best_count <= 0:
+            return None, None, None
+        return best_count, target_year, best_url
+
     def _get_html(self, url: str) -> str:
         response = self.session.get(url, timeout=self.timeout)
         response.raise_for_status()
         return response.text
 
     def _discover_candidate_urls(self, homepage_url: str, html: str) -> list[str]:
-        soup = BeautifulSoup(html, "html.parser")
+        soup = _safe_soup(html)
+        if soup is None:
+            return []
         candidates: list[tuple[int, str]] = []
         for anchor in soup.find_all("a", href=True):
             href = normalize_space(anchor.get("href"))
@@ -221,8 +344,51 @@ class JournalSiteCrawler:
             unique_urls.append(url)
         return unique_urls[:8]
 
+    def _discover_issue_candidate_urls(self, homepage_url: str, html: str) -> list[str]:
+        soup = _safe_soup(html)
+        if soup is None:
+            return []
+        candidates: list[tuple[int, str]] = []
+        for anchor in soup.find_all("a", href=True):
+            href = normalize_space(anchor.get("href"))
+            text = normalize_space(anchor.get_text(" ", strip=True))
+            if not href:
+                continue
+            absolute_url = urljoin(homepage_url, href)
+            if not _same_domain(homepage_url, absolute_url):
+                continue
+            score = 0
+            if ISSUES_LINK_PATTERN.search(text):
+                score += 5
+            if ISSUES_LINK_PATTERN.search(absolute_url):
+                score += 3
+            if score:
+                candidates.append((score, absolute_url))
+        for suffix in [
+            "archive",
+            "archive/",
+            "issues",
+            "issues/",
+            "all-issues",
+            "volumes-and-issues",
+            "browse",
+            "current-issue",
+        ]:
+            candidates.append((1, urljoin(homepage_url.rstrip("/") + "/", suffix)))
+        ordered = sorted(candidates, key=lambda item: (-item[0], item[1]))
+        unique_urls: list[str] = []
+        seen: set[str] = set()
+        for _, url in ordered:
+            if url in seen:
+                continue
+            seen.add(url)
+            unique_urls.append(url)
+        return unique_urls[:6]
+
     def _extract_aims_text(self, html: str) -> str | None:
-        soup = BeautifulSoup(html, "html.parser")
+        soup = _safe_soup(html)
+        if soup is None:
+            return None
         for tag in soup(["script", "style", "nav", "footer", "header", "form", "aside"]):
             tag.decompose()
 
@@ -279,6 +445,68 @@ class JournalSiteCrawler:
             return False
         return bool(AIMS_TEXT_PATTERN.search(text) or len(text) >= 220)
 
+    def _discover_year_issue_urls(
+        self,
+        base_url: str,
+        html: str,
+        *,
+        year_pattern: re.Pattern[str],
+        previous_year_pattern: re.Pattern[str],
+    ) -> list[str]:
+        soup = _safe_soup(html)
+        if soup is None:
+            return []
+        urls: list[tuple[int, str]] = []
+        for anchor in soup.find_all("a", href=True):
+            href = normalize_space(anchor.get("href"))
+            text = normalize_space(anchor.get_text(" ", strip=True))
+            if not href:
+                continue
+            absolute_url = urljoin(base_url, href)
+            if not _same_domain(base_url, absolute_url):
+                continue
+            haystack = f"{text} {absolute_url}"
+            score = 0
+            if year_pattern.search(haystack):
+                score += 6
+            elif previous_year_pattern.search(haystack):
+                score += 2
+            if ISSUES_LINK_PATTERN.search(haystack):
+                score += 3
+            if score:
+                urls.append((score, absolute_url))
+        ordered = sorted(urls, key=lambda item: (-item[0], item[1]))
+        results: list[str] = []
+        seen: set[str] = set()
+        for _, url in ordered:
+            if url in seen:
+                continue
+            seen.add(url)
+            results.append(url)
+        return results[:12]
+
+    def _extract_article_links(self, page_url: str, html: str) -> set[str]:
+        soup = _safe_soup(html)
+        if soup is None:
+            return set()
+        article_links: set[str] = set()
+        for anchor in soup.find_all("a", href=True):
+            href = normalize_space(anchor.get("href"))
+            text = normalize_space(anchor.get_text(" ", strip=True))
+            if not href:
+                continue
+            absolute_url = urljoin(page_url, href)
+            if not _same_domain(page_url, absolute_url):
+                continue
+            if not text or len(text) < 8:
+                continue
+            text_lower = text.lower()
+            if any(token in text_lower for token in ["pdf", "view pdf", "supplement", "editorial board", "submit", "instructions"]):
+                continue
+            if ARTICLE_URL_PATTERN.search(absolute_url) or len(text.split()) >= 4:
+                article_links.add(absolute_url)
+        return article_links
+
 
 class JournalProfileEnricher:
     def __init__(
@@ -302,12 +530,26 @@ class JournalProfileEnricher:
         source = self.openalex.find_source(title=profile.title, issn=profile.issn, eissn=profile.eissn)
         homepage_url = normalize_space((source or {}).get("homepage_url", "")) or profile.website
         aims_and_scope, aims_url = self.site_crawler.fetch_aims_and_scope(homepage_url)
+        site_publication_count, site_publication_count_year, publication_count_url = self.site_crawler.fetch_annual_publication_count(
+            homepage_url
+        )
+        openalex_publication_count = None
+        openalex_publication_count_year = None
         recent_articles: list[JournalArticleExample] = []
         if source and source.get("id"):
             recent_articles = self.openalex.fetch_recent_articles(
                 source_id=source["id"],
                 limit=self.recent_article_count,
             )
+            openalex_publication_count, openalex_publication_count_year = self.openalex.fetch_annual_publication_count(
+                source_id=source["id"]
+            )
+        annual_publication_count, annual_publication_count_year, annual_publication_count_source = _choose_publication_count(
+            site_count=site_publication_count,
+            site_year=site_publication_count_year,
+            openalex_count=openalex_publication_count,
+            openalex_year=openalex_publication_count_year,
+        )
         if self.request_delay_sec > 0:
             time.sleep(self.request_delay_sec)
 
@@ -316,6 +558,16 @@ class JournalProfileEnricher:
             notes_bits.append("Enriched using OpenAlex source metadata and recent works.")
         if aims_and_scope:
             notes_bits.append(f"Aims & Scope crawled from {aims_url}.")
+        if annual_publication_count is not None:
+            count_year_text = (
+                f"{annual_publication_count_year} one-year publication count = {annual_publication_count}"
+                if annual_publication_count_year is not None
+                else f"one-year publication count = {annual_publication_count}"
+            )
+            if publication_count_url and annual_publication_count_source == "journal_site_archive":
+                notes_bits.append(f"Annual publication count crawled from {publication_count_url}; {count_year_text}.")
+            else:
+                notes_bits.append(f"Annual publication count derived from {annual_publication_count_source}; {count_year_text}.")
 
         enriched_payload = profile.model_dump()
         enriched_payload["website"] = homepage_url or profile.website
@@ -323,10 +575,18 @@ class JournalProfileEnricher:
             enriched_payload["aims_and_scope"] = aims_and_scope
         if recent_articles:
             enriched_payload["recent_articles"] = [article.model_dump() for article in recent_articles]
+        enriched_payload["annual_publication_count"] = annual_publication_count
+        enriched_payload["annual_publication_count_year"] = annual_publication_count_year
+        enriched_payload["annual_publication_count_source"] = annual_publication_count_source
         enriched_payload["notes"] = normalize_space(" ".join(bit for bit in notes_bits if normalize_space(bit)))
-        enriched_payload["source_tags"] = list(
-            dict.fromkeys([*profile.source_tags, "openalex_enriched", "site_crawled_aims_scope"])
-        )
+        extra_tags = ["site_crawled_aims_scope"]
+        if source and source.get("id"):
+            extra_tags.append("openalex_enriched")
+        if annual_publication_count_source == "journal_site_archive":
+            extra_tags.append("site_crawled_publication_count")
+        elif annual_publication_count_source == "openalex_works_count":
+            extra_tags.append("openalex_publication_count")
+        enriched_payload["source_tags"] = list(dict.fromkeys([*profile.source_tags, *extra_tags]))
         enriched_profile = JournalProfile.model_validate(enriched_payload)
         self._save_cache(
             profile.journal_id or normalize_title_key(profile.title),
@@ -334,6 +594,9 @@ class JournalProfileEnricher:
                 "website": enriched_profile.website,
                 "aims_and_scope": enriched_profile.aims_and_scope,
                 "recent_articles": [article.model_dump() for article in enriched_profile.recent_articles],
+                "annual_publication_count": enriched_profile.annual_publication_count,
+                "annual_publication_count_year": enriched_profile.annual_publication_count_year,
+                "annual_publication_count_source": enriched_profile.annual_publication_count_source,
                 "notes": enriched_profile.notes,
                 "source_tags": enriched_profile.source_tags,
             },
@@ -346,7 +609,15 @@ class JournalProfileEnricher:
         cache_file = self.cache_dir / f"{cache_key}.json"
         if not cache_file.exists():
             return None
-        return json.loads(cache_file.read_text(encoding="utf-8"))
+        payload = json.loads(cache_file.read_text(encoding="utf-8"))
+        if "annual_publication_count" not in payload:
+            return None
+        if (
+            payload.get("annual_publication_count_source") == "journal_site_archive"
+            and (payload.get("annual_publication_count") or 0) > 250
+        ):
+            return None
+        return payload
 
     def _save_cache(self, cache_key: str, payload: dict[str, Any]) -> None:
         if not self.cache_dir:
@@ -360,6 +631,9 @@ class JournalProfileEnricher:
         payload["website"] = cached.get("website") or profile.website
         payload["aims_and_scope"] = cached.get("aims_and_scope") or profile.aims_and_scope
         payload["recent_articles"] = cached.get("recent_articles") or [article.model_dump() for article in profile.recent_articles]
+        payload["annual_publication_count"] = cached.get("annual_publication_count")
+        payload["annual_publication_count_year"] = cached.get("annual_publication_count_year")
+        payload["annual_publication_count_source"] = cached.get("annual_publication_count_source")
         payload["notes"] = cached.get("notes") or profile.notes
         payload["source_tags"] = cached.get("source_tags") or profile.source_tags
         return JournalProfile.model_validate(payload)

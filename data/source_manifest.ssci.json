@@ -4,6 +4,8 @@
       "name": "ssci_uploaded_csv",
       "type": "ssci_csv_enriched",
       "path": "Social Sciences Citation Index (SSCI).csv",
+      "law_only": true,
+      "focus_label": "law",
       "recent_article_count": 5,
       "request_delay_sec": 0.2,
       "cache_dir": "cache/ssci_enrichment",

@@ -4,7 +4,11 @@ import argparse
 from pathlib import Path
 
 from journal_agent.data.sources import DatasetBuilder
+from journal_agent.data.repository import JournalRepository
 from journal_agent.ranking.recommender import JournalRecommendationAgent
+from journal_agent.ranking.evaluation import RecommendationValidator
+from journal_agent.ranking.scoring import CorpusWeightProfile
+from journal_agent.ranking.supervised import SupervisedJournalDatasetBuilder, SupervisedJournalRanker
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,6 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="data/Social Sciences Citation Index (SSCI).csv",
         help="Path to a normalized journal dataset JSON or the uploaded SSCI CSV file.",
     )
+    recommend.add_argument("--model", help="Optional supervised model .pkl path. If provided, recommendation uses the trained model.")
     recommend.add_argument("--taxonomy", default="data/law_taxonomy.json", help="Path to taxonomy JSON.")
     recommend.add_argument("--discipline", default="law", help="Discipline key. Default: law.")
     recommend.add_argument("--output", default="output/recommendations.csv", help="CSV output path.")
@@ -32,6 +37,76 @@ def build_parser() -> argparse.ArgumentParser:
     crawl = subparsers.add_parser("crawl", help="Build a normalized journal dataset from a local manifest or CSV source.")
     crawl.add_argument("--manifest", required=True, help="Path to source manifest JSON.")
     crawl.add_argument("--output", required=True, help="Path to merged output JSON.")
+
+    evaluate = subparsers.add_parser("evaluate", help="Validate recommendation accuracy with held-out recent articles.")
+    evaluate.add_argument(
+        "--dataset",
+        default="data/legal_journals.ssci.generated.json",
+        help="Path to an enriched journal dataset JSON with aims & scope and recent articles.",
+    )
+    evaluate.add_argument("--taxonomy", default="data/law_taxonomy.json", help="Path to taxonomy JSON.")
+    evaluate.add_argument("--discipline", default="law", help="Discipline key. Default: law.")
+    evaluate.add_argument("--sample-size", type=int, default=60, help="Maximum number of held-out article samples.")
+    evaluate.add_argument(
+        "--max-samples-per-journal",
+        type=int,
+        default=2,
+        help="Maximum held-out article samples per journal.",
+    )
+    evaluate.add_argument(
+        "--min-articles-per-journal",
+        type=int,
+        default=3,
+        help="Minimum recent article count required before a journal can enter validation.",
+    )
+    evaluate.add_argument(
+        "--target-metric",
+        default="top3_accuracy",
+        choices=["top1_accuracy", "top3_accuracy", "top5_accuracy", "mrr"],
+        help="Validation metric used to pick the best core-weight profile.",
+    )
+    evaluate.add_argument(
+        "--target-threshold",
+        type=float,
+        default=0.90,
+        help="Threshold to compare against the target metric.",
+    )
+    evaluate.add_argument("--report", default="output/evaluation_report.json", help="JSON summary output path.")
+    evaluate.add_argument(
+        "--details-output",
+        default="output/evaluation_details.csv",
+        help="CSV detail output path for each validation sample.",
+    )
+    evaluate.add_argument("--scope-weight", type=float, help="Optional fixed scope weight for one-pass evaluation.")
+    evaluate.add_argument(
+        "--article-corpus-weight",
+        type=float,
+        help="Optional fixed article corpus weight for one-pass evaluation.",
+    )
+    evaluate.add_argument(
+        "--best-article-weight",
+        type=float,
+        help="Optional fixed best-article weight for one-pass evaluation.",
+    )
+    evaluate.add_argument("--keyword-weight", type=float, help="Optional fixed keyword weight for one-pass evaluation.")
+
+    supervised = subparsers.add_parser("train-supervised", help="Train a supervised journal ranking model with train/validation/test splits.")
+    supervised.add_argument(
+        "--dataset",
+        default="data/legal_journals.law_list.full.json",
+        help="Path to an enriched journal dataset JSON with aims & scope and recent articles.",
+    )
+    supervised.add_argument("--discipline", default="law", help="Discipline key. Default: law.")
+    supervised.add_argument("--max-articles-per-journal", type=int, default=5, help="Maximum recent articles per journal to use as labeled samples.")
+    supervised.add_argument(
+        "--target-metric",
+        default="top3_accuracy",
+        choices=["top1_accuracy", "top3_accuracy", "top5_accuracy", "mrr"],
+        help="Validation metric used to select the best supervised configuration.",
+    )
+    supervised.add_argument("--random-seed", type=int, default=42, help="Random seed for deterministic train/validation/test splits.")
+    supervised.add_argument("--model-output", default="output/supervised_journal_model.pkl", help="Path to save the trained supervised model.")
+    supervised.add_argument("--report", default="output/supervised_training_report.json", help="JSON summary output path.")
     return parser
 
 
@@ -44,6 +119,12 @@ def main() -> None:
     if args.command == "crawl":
         run_crawl(args)
         return
+    if args.command == "evaluate":
+        run_evaluate(args)
+        return
+    if args.command == "train-supervised":
+        run_train_supervised(args)
+        return
     raise ValueError(f"Unknown command: {args.command}")
 
 
@@ -54,6 +135,7 @@ def run_recommend(args: argparse.Namespace) -> None:
     manuscript, recommendations = agent.recommend(
         dataset_path=args.dataset,
         taxonomy_path=args.taxonomy,
+        model_path=args.model,
         manuscript_path=args.manuscript,
         title=args.title,
         abstract=args.abstract,
@@ -82,3 +164,92 @@ def run_crawl(args: argparse.Namespace) -> None:
     print(f"Collected {len(profiles)} journals.")
     print(f"Saved dataset to: {Path(args.output).resolve()}")
     print("Use this JSON file as --dataset for recommendation if you want the enriched journal portraits.")
+
+
+def run_evaluate(args: argparse.Namespace) -> None:
+    repository = JournalRepository()
+    journals = repository.load_journals(args.dataset, discipline=args.discipline)
+    taxonomy = repository.load_taxonomy(args.taxonomy)
+    validator = RecommendationValidator(
+        taxonomy,
+        target_metric=args.target_metric,
+        target_threshold=args.target_threshold,
+    )
+    samples = validator.build_samples(
+        journals,
+        max_samples_per_journal=args.max_samples_per_journal,
+        sample_size=args.sample_size,
+        min_articles_per_journal=args.min_articles_per_journal,
+    )
+    if not samples:
+        raise ValueError(
+            "No validation samples were available. Make sure the dataset is the enriched JSON output from crawl "
+            "and that journals contain recent articles."
+        )
+    fixed_weight_values = [
+        args.scope_weight,
+        args.article_corpus_weight,
+        args.best_article_weight,
+        args.keyword_weight,
+    ]
+    if any(value is not None for value in fixed_weight_values):
+        if not all(value is not None for value in fixed_weight_values):
+            raise ValueError(
+                "If you pass fixed evaluation weights, provide --scope-weight, --article-corpus-weight, "
+                "--best-article-weight, and --keyword-weight together."
+            )
+        core_weights = CorpusWeightProfile(
+            scope_weight=args.scope_weight,
+            article_corpus_weight=args.article_corpus_weight,
+            best_article_weight=args.best_article_weight,
+            keyword_weight=args.keyword_weight,
+        ).normalized()
+        metrics, detail_rows = validator.evaluate(journals, samples=samples, core_weights=core_weights)
+    else:
+        core_weights, metrics, detail_rows = validator.optimize_core_weights(journals, samples=samples)
+    validator.save_report(
+        report_path=args.report,
+        detail_output_path=args.details_output,
+        core_weights=core_weights,
+        metrics=metrics,
+        detail_rows=detail_rows,
+    )
+    threshold_met = getattr(metrics, args.target_metric) >= args.target_threshold
+    print(f"Validation samples: {metrics.sample_count}")
+    print(f"Best core weights: {core_weights.as_dict()}")
+    print(f"Top-1 accuracy: {metrics.top1_accuracy:.3f}")
+    print(f"Top-3 accuracy: {metrics.top3_accuracy:.3f}")
+    print(f"Top-5 accuracy: {metrics.top5_accuracy:.3f}")
+    print(f"MRR: {metrics.mrr:.3f}")
+    print(f"Threshold met ({args.target_metric} >= {args.target_threshold:.2f}): {threshold_met}")
+    print(f"Report file: {Path(args.report).resolve()}")
+    print(f"Detail file: {Path(args.details_output).resolve()}")
+
+
+def run_train_supervised(args: argparse.Namespace) -> None:
+    repository = JournalRepository()
+    journals = repository.load_journals(args.dataset, discipline=args.discipline)
+    builder = SupervisedJournalDatasetBuilder(
+        max_articles_per_journal=args.max_articles_per_journal,
+        random_seed=args.random_seed,
+    )
+    dataset = builder.build(journals)
+    ranker = SupervisedJournalRanker()
+    report_payload, validation_rows, test_rows = ranker.fit(dataset, target_metric=args.target_metric)
+    ranker.save(args.model_output)
+    ranker.save_report(
+        report_path=args.report,
+        report_payload=report_payload,
+        validation_rows=validation_rows,
+        test_rows=test_rows,
+    )
+    print("Supervised model training completed.")
+    print(f"Train samples: {dataset.split_summary['train_samples']}")
+    print(f"Validation samples: {dataset.split_summary['validation_samples']}")
+    print(f"Test samples: {dataset.split_summary['test_samples']}")
+    print(f"Validation Top-1 accuracy: {report_payload['validation_metrics']['top1_accuracy']:.3f}")
+    print(f"Validation Top-3 accuracy: {report_payload['validation_metrics']['top3_accuracy']:.3f}")
+    print(f"Test Top-1 accuracy: {report_payload['test_metrics']['top1_accuracy']:.3f}")
+    print(f"Test Top-3 accuracy: {report_payload['test_metrics']['top3_accuracy']:.3f}")
+    print(f"Saved model to: {Path(args.model_output).resolve()}")
+    print(f"Report file: {Path(args.report).resolve()}")

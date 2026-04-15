@@ -4,6 +4,8 @@
       "name": "ssci_uploaded_csv_quick",
       "type": "ssci_csv_lookup",
       "path": "Social Sciences Citation Index (SSCI).csv",
+      "law_only": true,
+      "focus_label": "law",
       "static_fields": {
         "indexing": ["SSCI"],
         "source_tags": ["ssci_uploaded", "ssci_local_csv"]

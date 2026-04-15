@@ -36,6 +36,9 @@ class JournalProfile(BaseModel):
     recent_articles: list[JournalArticleExample] = Field(default_factory=list)
     jcr_quartile: str | None = None
     impact_factor: float | None = None
+    annual_publication_count: int | None = None
+    annual_publication_count_year: int | None = None
+    annual_publication_count_source: str | None = None
     review_cycle_months: float | None = None
     acceptance_rate: float | None = None
     source_tags: list[str] = Field(default_factory=list)
@@ -56,6 +59,9 @@ class ManuscriptProfile(BaseModel):
     extracted_terms: list[str] = Field(default_factory=list)
     legal_terms: list[str] = Field(default_factory=list)
     legal_topic_score: float = 0.0
+    subfield_scores: dict[str, float] = Field(default_factory=dict)
+    primary_subfield: str | None = None
+    focus_subfields: list[str] = Field(default_factory=list)
 
     def combined_text(self) -> str:
         return "\n".join(
@@ -82,14 +88,23 @@ class TaxonomyProfile(BaseModel):
 class RecommendationResult(BaseModel):
     journal: JournalProfile
     content_fit: float
+    bucket_fit: float = 0.0
+    scope_fit: float = 0.0
+    article_corpus_fit: float = 0.0
+    best_article_fit: float = 0.0
+    keyword_fit: float = 0.0
     methodology_fit: float
     editorial_fit: float
     venue_quality: float
     feasibility: float
     overall_score: float
     match_probability: float
+    overexposure_penalty: float = 1.0
+    overexposure_penalty_reason: str | None = None
     match_level: str
     rationale: str
+    manuscript_primary_subfield: str | None = None
+    journal_primary_subfield: str | None = None
     matched_methodologies: list[str] = Field(default_factory=list)
     matched_editorial_signals: list[str] = Field(default_factory=list)
 
@@ -102,16 +117,28 @@ class RecommendationResult(BaseModel):
             "website": self.journal.website or "",
             "publisher": self.journal.publisher or "",
             "discipline": self.journal.discipline,
+            "manuscript_primary_subfield": self.manuscript_primary_subfield or "",
+            "journal_primary_subfield": self.journal_primary_subfield or "",
             "match_level": self.match_level,
             "overall_score": round(self.overall_score * 100, 2),
             "match_probability": round(self.match_probability * 100, 2),
+            "overexposure_penalty": round(self.overexposure_penalty * 100, 2),
+            "overexposure_penalty_reason": self.overexposure_penalty_reason or "",
             "content_fit": round(self.content_fit * 100, 2),
+            "bucket_fit": round(self.bucket_fit * 100, 2),
+            "scope_fit": round(self.scope_fit * 100, 2),
+            "article_corpus_fit": round(self.article_corpus_fit * 100, 2),
+            "best_article_fit": round(self.best_article_fit * 100, 2),
+            "keyword_fit": round(self.keyword_fit * 100, 2),
             "methodology_fit": round(self.methodology_fit * 100, 2),
             "editorial_fit": round(self.editorial_fit * 100, 2),
             "venue_quality": round(self.venue_quality * 100, 2),
             "feasibility": round(self.feasibility * 100, 2),
             "jcr_quartile": self.journal.jcr_quartile or "",
             "impact_factor": self.journal.impact_factor if self.journal.impact_factor is not None else "",
+            "annual_publication_count": self.journal.annual_publication_count if self.journal.annual_publication_count is not None else "",
+            "annual_publication_count_year": self.journal.annual_publication_count_year if self.journal.annual_publication_count_year is not None else "",
+            "annual_publication_count_source": self.journal.annual_publication_count_source or "",
             "review_cycle_months": self.journal.review_cycle_months if self.journal.review_cycle_months is not None else "",
             "acceptance_rate": round(self.journal.acceptance_rate * 100, 2) if self.journal.acceptance_rate is not None else "",
             "indexing": "; ".join(self.journal.indexing),

@@ -3,7 +3,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from journal_agent.models.schemas import JournalProfile, ManuscriptProfile, RecommendationResult, TaxonomyEntry, TaxonomyProfile
-from journal_agent.utils.text_processing import clamp, cosine_similarity_scores, extract_candidate_terms, keyword_overlap, normalize_space, safe_mean
+from journal_agent.ranking.subfields import (
+    GENERAL_LAW_REVIEW_BUCKET,
+    SubfieldProfile,
+    bucket_label,
+    bucket_similarity,
+    build_law_subfield_profile,
+)
+from journal_agent.utils.text_processing import (
+    clamp,
+    extract_candidate_terms,
+    hybrid_similarity_scores,
+    keyword_overlap,
+    normalize_space,
+    normalize_title_key,
+    safe_mean,
+    top_k_mean,
+)
 
 
 INDEXING_WEIGHTS = {
@@ -11,7 +27,6 @@ INDEXING_WEIGHTS = {
     "ssci": 0.95,
     "sci": 0.95,
     "cssci": 0.85,
-    "北大核心": 0.75,
     "scopus": 0.72,
 }
 
@@ -25,109 +40,38 @@ QUARTILE_WEIGHTS = {
 LEGAL_SIGNAL_GROUPS = [
     {
         "name": "legal_core",
-        "weight": 0.26,
-        "aliases": [
-            "law",
-            "legal",
-            "jurisprudence",
-            "juridical",
-            "\u6cd5\u5b66",
-            "\u6cd5\u5f8b",
-            "\u6cd5\u7406",
-            "\u6cd5\u6cbb",
-        ],
+        "weight": 0.28,
+        "aliases": ["law", "legal", "jurisprudence", "juridical", "rule of law"],
     },
     {
         "name": "judicial_process",
         "weight": 0.18,
-        "aliases": [
-            "court",
-            "judicial",
-            "litigation",
-            "adjudication",
-            "due process",
-            "tribunal",
-            "\u6cd5\u9662",
-            "\u53f8\u6cd5",
-            "\u8bc9\u8bbc",
-            "\u88c1\u5224",
-            "\u6b63\u5f53\u7a0b\u5e8f",
-        ],
+        "aliases": ["court", "judicial", "litigation", "adjudication", "due process", "tribunal"],
     },
     {
         "name": "legislation_regulation",
         "weight": 0.16,
-        "aliases": [
-            "legislation",
-            "statute",
-            "regulation",
-            "regulatory",
-            "compliance",
-            "\u7acb\u6cd5",
-            "\u89c4\u5236",
-            "\u76d1\u7ba1",
-            "\u6cd5\u89c4",
-            "\u5408\u89c4",
-        ],
+        "aliases": ["legislation", "statute", "regulation", "regulatory", "compliance"],
     },
     {
         "name": "rights_public_law",
         "weight": 0.14,
-        "aliases": [
-            "constitutional",
-            "human rights",
-            "administrative law",
-            "public law",
-            "\u5baa\u6cd5",
-            "\u4eba\u6743",
-            "\u6743\u5229",
-            "\u884c\u653f\u6cd5",
-            "\u516c\u6cd5",
-        ],
+        "aliases": ["constitutional", "human rights", "administrative law", "public law"],
     },
     {
         "name": "private_commercial_law",
         "weight": 0.14,
-        "aliases": [
-            "civil law",
-            "contract",
-            "corporate law",
-            "commercial law",
-            "private law",
-            "\u6c11\u6cd5",
-            "\u5408\u540c",
-            "\u516c\u53f8\u6cd5",
-            "\u5546\u6cd5",
-            "\u79c1\u6cd5",
-        ],
+        "aliases": ["civil law", "contract", "corporate law", "commercial law", "private law"],
     },
     {
         "name": "criminal_law",
         "weight": 0.14,
-        "aliases": [
-            "criminal law",
-            "crime",
-            "criminal justice",
-            "penology",
-            "policing",
-            "\u5211\u6cd5",
-            "\u72af\u7f6a",
-            "\u5211\u4e8b",
-            "\u6cbb\u5b89",
-        ],
+        "aliases": ["criminal law", "crime", "criminal justice", "penology", "policing"],
     },
     {
         "name": "comparative_international_law",
         "weight": 0.12,
-        "aliases": [
-            "comparative law",
-            "international law",
-            "transnational law",
-            "\u6bd4\u8f83\u6cd5",
-            "\u56fd\u9645\u6cd5",
-            "\u8de8\u5883",
-            "\u57df\u5916\u6cd5",
-        ],
+        "aliases": ["comparative law", "international law", "transnational law"],
     },
     {
         "name": "digital_law",
@@ -138,11 +82,6 @@ LEGAL_SIGNAL_GROUPS = [
             "algorithmic governance",
             "data protection",
             "cyber law",
-            "\u5e73\u53f0\u6cbb\u7406",
-            "\u7b97\u6cd5\u6cbb\u7406",
-            "\u6570\u636e\u4fdd\u62a4",
-            "\u7f51\u7edc\u6cd5",
-            "\u4eba\u5de5\u667a\u80fd\u76d1\u7ba1",
         ],
     },
 ]
@@ -164,48 +103,130 @@ DIRECT_LAW_JOURNAL_TERMS = [
     "court",
     "judicial",
     "justice",
-    "criminology",
-    "penology",
     "human rights",
     "public law",
     "private law",
     "constitutional",
 ]
 LAW_ADJACENT_JOURNAL_TERMS = [
-    "political science",
-    "public administration",
-    "international relations",
     "governance",
     "regulation",
     "policy",
     "state",
     "institutions",
+    "criminology",
+    "penology",
 ]
 
-CONCEPT_ALIASES = {
-    "platform_governance": ["platform governance", "online platform", "平台治理", "平台规制", "平台监管"],
-    "algorithmic_regulation": ["algorithm", "algorithmic", "算法", "自动化决策", "算法治理"],
-    "due_process": ["due process", "procedural fairness", "procedural justice", "正当程序", "程序保障"],
-    "digital_regulation": ["digital regulation", "digital governance", "数字监管", "数字治理", "网络治理"],
-    "comparative_law": ["comparative law", "cross-jurisdiction", "比较法", "域外法", "比较研究"],
-    "artificial_intelligence": ["artificial intelligence", "ai", "人工智能"],
-    "data_protection": ["data protection", "data compliance", "数据保护", "数据合规", "个人信息保护"],
-    "human_rights": ["human rights", "rights-based", "人权", "基本权利"],
-    "judicial_process": ["judicial", "court", "litigation", "法院", "司法", "裁判", "诉讼"],
-    "regulation_policy": ["regulation", "policy", "legislation", "规制", "政策", "立法"],
+
+@dataclass(frozen=True)
+class OverexposedJournalRule:
+    penalty_multiplier: float
+    protected_buckets: tuple[str, ...]
+    release_bucket_fit: float = 0.56
+    release_scope_fit: float = 0.54
+    release_best_article_fit: float = 0.52
+
+
+OVEREXPOSED_JOURNAL_RULES = {
+    normalize_title_key("EUROPEAN JOURNAL OF INTERNATIONAL LAW"): OverexposedJournalRule(
+        penalty_multiplier=0.82,
+        protected_buckets=("international_comparative_law",),
+        release_bucket_fit=0.60,
+        release_scope_fit=0.58,
+        release_best_article_fit=0.56,
+    ),
+    normalize_title_key("JOURNAL OF INTERNATIONAL CRIMINAL JUSTICE"): OverexposedJournalRule(
+        penalty_multiplier=0.84,
+        protected_buckets=("international_comparative_law", "criminal_justice_criminology"),
+        release_bucket_fit=0.58,
+        release_scope_fit=0.55,
+        release_best_article_fit=0.54,
+    ),
+    normalize_title_key("UNIVERSITY OF PENNSYLVANIA LAW REVIEW"): OverexposedJournalRule(
+        penalty_multiplier=0.84,
+        protected_buckets=(GENERAL_LAW_REVIEW_BUCKET, "constitutional_human_rights"),
+        release_bucket_fit=0.57,
+        release_scope_fit=0.56,
+        release_best_article_fit=0.54,
+    ),
+    normalize_title_key("YALE LAW JOURNAL"): OverexposedJournalRule(
+        penalty_multiplier=0.84,
+        protected_buckets=(GENERAL_LAW_REVIEW_BUCKET, "constitutional_human_rights", "regulation_governance_legislation"),
+        release_bucket_fit=0.57,
+        release_scope_fit=0.56,
+        release_best_article_fit=0.54,
+    ),
+    normalize_title_key("FEMINIST LEGAL STUDIES"): OverexposedJournalRule(
+        penalty_multiplier=0.86,
+        protected_buckets=("constitutional_human_rights", "family_labor_social_law", "socio_legal_behavioral"),
+        release_bucket_fit=0.55,
+        release_scope_fit=0.52,
+        release_best_article_fit=0.50,
+    ),
 }
 
 
-@dataclass
-class ManuscriptSignalBundle:
-    methodologies: dict[str, float]
-    editorial_signals: dict[str, float]
-    extracted_terms: list[str]
+@dataclass(frozen=True)
+class CorpusWeightProfile:
+    scope_weight: float = 0.24
+    article_corpus_weight: float = 0.33
+    best_article_weight: float = 0.28
+    keyword_weight: float = 0.15
+
+    def normalized(self) -> "CorpusWeightProfile":
+        total = self.scope_weight + self.article_corpus_weight + self.best_article_weight + self.keyword_weight
+        if total <= 0:
+            return DEFAULT_CORE_WEIGHTS
+        return CorpusWeightProfile(
+            scope_weight=self.scope_weight / total,
+            article_corpus_weight=self.article_corpus_weight / total,
+            best_article_weight=self.best_article_weight / total,
+            keyword_weight=self.keyword_weight / total,
+        )
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "scope_weight": self.scope_weight,
+            "article_corpus_weight": self.article_corpus_weight,
+            "best_article_weight": self.best_article_weight,
+            "keyword_weight": self.keyword_weight,
+        }
 
 
-class HeuristicScoringEngine:
-    def __init__(self, taxonomy: TaxonomyProfile) -> None:
+DEFAULT_CORE_WEIGHTS = CorpusWeightProfile(0.24, 0.33, 0.28, 0.15)
+
+
+def build_core_weight_candidates() -> list[CorpusWeightProfile]:
+    unique_profiles: dict[tuple[float, float, float, float], CorpusWeightProfile] = {}
+    for scope_weight in (2, 3, 4):
+        for article_corpus_weight in (3, 4, 5):
+            for best_article_weight in (2, 3, 4):
+                for keyword_weight in (1, 2):
+                    profile = CorpusWeightProfile(
+                        scope_weight=float(scope_weight),
+                        article_corpus_weight=float(article_corpus_weight),
+                        best_article_weight=float(best_article_weight),
+                        keyword_weight=float(keyword_weight),
+                    ).normalized()
+                    key = tuple(round(value, 4) for value in profile.as_dict().values())
+                    unique_profiles[key] = profile
+    default_profile = DEFAULT_CORE_WEIGHTS.normalized()
+    unique_profiles[tuple(round(value, 4) for value in default_profile.as_dict().values())] = default_profile
+    return list(unique_profiles.values())
+
+
+class CorpusScoringEngine:
+    def __init__(
+        self,
+        taxonomy: TaxonomyProfile,
+        *,
+        core_weights: CorpusWeightProfile | None = None,
+        stage_one_candidate_cap: int | None = None,
+    ) -> None:
         self.taxonomy = taxonomy
+        self.core_weights = (core_weights or DEFAULT_CORE_WEIGHTS).normalized()
+        self.stage_one_candidate_cap = stage_one_candidate_cap
 
     def enrich_manuscript(self, manuscript: ManuscriptProfile) -> ManuscriptProfile:
         combined = manuscript.combined_text()
@@ -226,65 +247,249 @@ class HeuristicScoringEngine:
         )[:30]
         manuscript.legal_terms = legal_terms
         manuscript.legal_topic_score = clamp(legal_keyword_score + law_method_bonus + law_editorial_bonus)
+
+        manuscript_subfields = build_law_subfield_profile(
+            title=manuscript.title,
+            keywords=[*manuscript.keywords, *manuscript.extracted_terms],
+            text_segments=[manuscript.abstract, manuscript.full_text[:6000]],
+        )
+        manuscript.subfield_scores = manuscript_subfields.scores
+        manuscript.primary_subfield = manuscript_subfields.primary
+        manuscript.focus_subfields = list(manuscript_subfields.focus)
         return manuscript
 
     def score(self, manuscript: ManuscriptProfile, journals: list[JournalProfile]) -> list[RecommendationResult]:
         manuscript = self.enrich_manuscript(manuscript)
-        journal_corpora = [self._journal_corpus(journal) for journal in journals]
-        similarity_scores = cosine_similarity_scores(manuscript.combined_text(), journal_corpora)
+        manuscript_subfields = self._manuscript_subfield_profile(manuscript)
+        journal_subfield_profiles = {
+            self._journal_key(journal): self._journal_subfield_profile(journal)
+            for journal in journals
+        }
+
+        manuscript_query = self._manuscript_query(manuscript)
+        scope_scores = hybrid_similarity_scores(manuscript_query, [self._journal_scope_text(journal) for journal in journals])
+        article_corpus_scores = hybrid_similarity_scores(
+            manuscript_query,
+            [self._journal_article_corpus(journal) for journal in journals],
+        )
+
+        signal_cache: list[dict[str, object]] = []
+        for journal, scope_fit, article_corpus_fit in zip(journals, scope_scores, article_corpus_scores, strict=False):
+            journal_key = self._journal_key(journal)
+            journal_subfields = journal_subfield_profiles[journal_key]
+            best_article_fit = self._best_article_fit(manuscript_query, journal)
+            keyword_fit = self._keyword_fit(manuscript, journal)
+            core_fit = self._core_fit(
+                scope_fit=scope_fit,
+                article_corpus_fit=article_corpus_fit,
+                best_article_fit=best_article_fit,
+                keyword_fit=keyword_fit,
+            )
+            signal_cache.append(
+                {
+                    "journal": journal,
+                    "journal_key": journal_key,
+                    "journal_subfields": journal_subfields,
+                    "scope_fit": scope_fit,
+                    "article_corpus_fit": article_corpus_fit,
+                    "best_article_fit": best_article_fit,
+                    "keyword_fit": keyword_fit,
+                    "core_fit": core_fit,
+                }
+            )
+
+        bucket_stage_scores = self._bucket_stage_scores(signal_cache)
+        bucket_confidence = max(bucket_stage_scores.values(), default=0.0)
+        stage_focus_buckets = self._focus_stage_buckets(bucket_stage_scores)
+        bucket_signal_weight = self._bucket_signal_weight(
+            manuscript,
+            bucket_confidence=bucket_confidence,
+            stage_focus_count=len(stage_focus_buckets),
+        )
+
         recommendations: list[RecommendationResult] = []
-        for journal, similarity in zip(journals, similarity_scores, strict=False):
-            content_fit = self._content_fit(manuscript, journal, similarity)
+        for item in signal_cache:
+            journal = item["journal"]
+            journal_subfields = item["journal_subfields"]
+            scope_fit = float(item["scope_fit"])
+            article_corpus_fit = float(item["article_corpus_fit"])
+            best_article_fit = float(item["best_article_fit"])
+            keyword_fit = float(item["keyword_fit"])
+            core_fit = float(item["core_fit"])
+
+            bucket_fit = self._bucket_fit_from_stage_scores(journal_subfields, bucket_stage_scores)
+            heuristic_bucket_fit = bucket_similarity(manuscript_subfields, journal_subfields)
+            stage_one_score = clamp(
+                (0.78 * bucket_fit)
+                + (0.22 * heuristic_bucket_fit)
+                + (0.04 if journal_subfields.primary and journal_subfields.primary in stage_focus_buckets else 0.0)
+            )
             methodology_fit, matched_methodologies = self._preference_fit(
                 manuscript.methodologies,
                 journal.methodology_preferences,
-                neutral_default=0.58,
+                neutral_default=0.50,
             )
             editorial_fit, matched_editorials = self._preference_fit(
                 manuscript.editorial_signals,
                 journal.editorial_preferences,
-                neutral_default=0.56,
+                neutral_default=0.50,
             )
             venue_quality = self._venue_quality(journal)
             feasibility = self._feasibility(journal)
             legal_alignment = self._legal_alignment(manuscript, journal)
+
             if manuscript.legal_topic_score >= 0.35:
-                fit_total = 0.45 * content_fit + 0.22 * methodology_fit + 0.15 * editorial_fit + 0.18 * legal_alignment
+                legal_weight = 0.12
+                bucket_weight = bucket_signal_weight
+                core_weight = max(0.0, 1.0 - legal_weight - bucket_weight)
+                content_fit = clamp((core_weight * core_fit) + (bucket_weight * bucket_fit) + (legal_weight * legal_alignment))
             else:
-                fit_total = 0.55 * content_fit + 0.25 * methodology_fit + 0.20 * editorial_fit
-            overall_score = clamp(0.72 * fit_total + 0.16 * venue_quality + 0.12 * feasibility)
-            match_probability = clamp(0.82 * fit_total + 0.18 * feasibility)
+                bucket_weight = min(bucket_signal_weight, 0.06)
+                content_fit = clamp(((1.0 - bucket_weight) * core_fit) + (bucket_weight * bucket_fit))
+
+            stage_two_score = clamp(
+                (0.82 * content_fit)
+                + (0.05 * methodology_fit)
+                + (0.03 * editorial_fit)
+                + (0.06 * venue_quality)
+                + (0.04 * feasibility)
+            )
+            overall_score = clamp((0.94 * stage_two_score) + (0.06 * stage_one_score))
+            match_probability = clamp((0.92 * content_fit) + (0.04 * stage_one_score) + (0.02 * methodology_fit) + (0.02 * editorial_fit))
+
+            overall_score = self._apply_bucket_adjustments(
+                manuscript_subfields=manuscript_subfields,
+                journal_subfields=journal_subfields,
+                bucket_fit=bucket_fit,
+                bucket_confidence=bucket_confidence,
+                stage_focus_buckets=stage_focus_buckets,
+                base_score=overall_score,
+            )
+            match_probability = self._apply_bucket_adjustments(
+                manuscript_subfields=manuscript_subfields,
+                journal_subfields=journal_subfields,
+                bucket_fit=bucket_fit,
+                bucket_confidence=bucket_confidence,
+                stage_focus_buckets=stage_focus_buckets,
+                base_score=match_probability,
+            )
             if manuscript.legal_topic_score >= 0.55:
-                law_multiplier = 0.75 + 0.35 * legal_alignment
+                law_multiplier = 0.86 + (0.14 * legal_alignment)
                 overall_score = clamp(overall_score * law_multiplier)
                 match_probability = clamp(match_probability * law_multiplier)
+
+            overexposure_penalty, overexposure_reason = self._overexposure_penalty(
+                manuscript_subfields=manuscript_subfields,
+                journal=journal,
+                journal_subfields=journal_subfields,
+                bucket_fit=bucket_fit,
+                bucket_confidence=bucket_confidence,
+                stage_focus_buckets=stage_focus_buckets,
+                scope_fit=scope_fit,
+                article_corpus_fit=article_corpus_fit,
+                best_article_fit=best_article_fit,
+                legal_alignment=legal_alignment,
+            )
+            if overexposure_penalty < 1.0:
+                overall_score = clamp(overall_score * overexposure_penalty)
+                match_probability = clamp(match_probability * overexposure_penalty)
+
+            rationale = self._build_rationale(
+                manuscript=manuscript,
+                journal=journal,
+                manuscript_subfields=manuscript_subfields,
+                journal_subfields=journal_subfields,
+                bucket_fit=bucket_fit,
+                scope_fit=scope_fit,
+                article_corpus_fit=article_corpus_fit,
+                best_article_fit=best_article_fit,
+                keyword_fit=keyword_fit,
+                methodology_fit=methodology_fit,
+                editorial_fit=editorial_fit,
+                legal_alignment=legal_alignment,
+                matched_methodologies=matched_methodologies,
+                matched_editorials=matched_editorials,
+            )
+            if overexposure_reason:
+                rationale = f"{rationale}; overexposure control: {overexposure_reason}"
+
             recommendations.append(
                 RecommendationResult(
                     journal=journal,
                     content_fit=content_fit,
+                    bucket_fit=bucket_fit,
+                    scope_fit=scope_fit,
+                    article_corpus_fit=article_corpus_fit,
+                    best_article_fit=best_article_fit,
+                    keyword_fit=keyword_fit,
                     methodology_fit=methodology_fit,
                     editorial_fit=editorial_fit,
                     venue_quality=venue_quality,
                     feasibility=feasibility,
                     overall_score=overall_score,
                     match_probability=match_probability,
+                    overexposure_penalty=overexposure_penalty,
+                    overexposure_penalty_reason=overexposure_reason,
                     match_level=self._match_level(match_probability),
-                    rationale=self._build_rationale(
-                        manuscript,
-                        journal,
-                        content_fit,
-                        methodology_fit,
-                        editorial_fit,
-                        legal_alignment,
-                        matched_methodologies,
-                        matched_editorials,
-                    ),
+                    rationale=rationale,
+                    manuscript_primary_subfield=bucket_label(manuscript_subfields.primary) or None,
+                    journal_primary_subfield=bucket_label(journal_subfields.primary) or None,
                     matched_methodologies=matched_methodologies,
                     matched_editorial_signals=matched_editorials,
                 )
             )
         recommendations.sort(key=lambda item: (-item.overall_score, -item.match_probability, item.journal.title.lower()))
         return recommendations
+
+    def _bucket_stage_scores(self, signal_cache: list[dict[str, object]]) -> dict[str, float]:
+        bucket_values: dict[str, list[float]] = {}
+        for item in signal_cache:
+            journal_subfields = item["journal_subfields"]
+            core_fit = float(item["core_fit"])
+            for bucket in journal_subfields.focus:
+                bucket_values.setdefault(bucket, []).append(core_fit)
+        stage_scores: dict[str, float] = {}
+        for bucket, values in bucket_values.items():
+            stage_scores[bucket] = clamp((0.60 * top_k_mean(values, k=5, default=0.0)) + (0.40 * max(values, default=0.0)))
+        return stage_scores
+
+    def _focus_stage_buckets(self, stage_scores: dict[str, float]) -> set[str]:
+        if not stage_scores:
+            return set()
+        top_score = max(stage_scores.values())
+        threshold = max(0.32, top_score * 0.86)
+        return {bucket for bucket, score in stage_scores.items() if score >= threshold}
+
+    def _bucket_fit_from_stage_scores(self, journal_subfields: SubfieldProfile, stage_scores: dict[str, float]) -> float:
+        if not journal_subfields.focus:
+            return 0.0
+        stage_fit = max((stage_scores.get(bucket, 0.0) for bucket in journal_subfields.focus), default=0.0)
+        if journal_subfields.primary == GENERAL_LAW_REVIEW_BUCKET:
+            stage_fit *= 0.97
+        return clamp(stage_fit)
+
+    def _apply_bucket_adjustments(
+        self,
+        *,
+        manuscript_subfields: SubfieldProfile,
+        journal_subfields: SubfieldProfile,
+        bucket_fit: float,
+        bucket_confidence: float,
+        stage_focus_buckets: set[str],
+        base_score: float,
+    ) -> float:
+        adjusted = base_score
+        if bucket_confidence >= 0.44 and journal_subfields.primary and journal_subfields.primary in stage_focus_buckets:
+            adjusted *= 1.01
+        if (
+            bucket_confidence >= 0.52
+            and manuscript_subfields.primary
+            and manuscript_subfields.primary != GENERAL_LAW_REVIEW_BUCKET
+            and journal_subfields.primary == GENERAL_LAW_REVIEW_BUCKET
+            and bucket_fit < 0.28
+        ):
+            adjusted *= 0.97
+        return clamp(adjusted)
 
     def _match_taxonomy_entries(self, text: str, entries: list[TaxonomyEntry]) -> dict[str, float]:
         lowered = normalize_space(text).lower()
@@ -295,88 +500,74 @@ class HeuristicScoringEngine:
                 if normalize_space(alias).lower() in lowered:
                     hits += 1
             if hits:
-                scores[entry.name] = clamp(0.35 + 0.2 * hits, 0.0, 1.0)
+                scores[entry.name] = clamp(0.35 + (0.2 * hits), 0.0, 1.0)
         return scores
 
-    def _journal_corpus(self, journal: JournalProfile) -> str:
-        recent_articles = " ".join(
-            f"{article.title} {' '.join(article.keywords)} {article.abstract_snippet} {article.full_text}"
-            for article in journal.recent_articles
+    def _manuscript_query(self, manuscript: ManuscriptProfile) -> str:
+        return "\n".join(
+            [
+                manuscript.title,
+                manuscript.abstract,
+                " ".join(manuscript.keywords),
+                " ".join(manuscript.extracted_terms[:20]),
+                manuscript.full_text[:6000],
+            ]
         )
+
+    def _journal_scope_text(self, journal: JournalProfile) -> str:
         return "\n".join(
             [
                 journal.title,
                 journal.aims_and_scope,
                 " ".join(journal.subdisciplines),
                 " ".join(journal.keywords),
-                " ".join(journal.methodology_preferences),
-                " ".join(journal.editorial_preferences),
-                recent_articles,
             ]
         )
 
-    def _content_fit(self, manuscript: ManuscriptProfile, journal: JournalProfile, similarity: float) -> float:
-        journal_terms = list(
-            dict.fromkeys(
-                [
-                    *journal.keywords,
-                    *journal.subdisciplines,
-                    *(article.title for article in journal.recent_articles),
-                    *(keyword for article in journal.recent_articles for keyword in article.keywords),
-                ]
-            )
-        )
-        overlap = keyword_overlap(manuscript.keywords + manuscript.extracted_terms, journal_terms)
-        concept_overlap = keyword_overlap(
-            self._extract_concepts(manuscript.combined_text()),
-            self._extract_concepts(self._journal_corpus(journal)),
-        )
-        article_section_fit = self._article_section_fit(manuscript, journal)
-        reference_fit = self._reference_similarity_fit(manuscript, journal)
-        weighted_parts = [(similarity, 0.35), (overlap, 0.15), (concept_overlap, 0.20), (article_section_fit, 0.20)]
-        if manuscript.legal_topic_score >= 0.35:
-            legal_overlap = keyword_overlap(manuscript.legal_terms, self._journal_legal_terms(journal))
-            weighted_parts.append((legal_overlap, 0.10))
-        if reference_fit is not None:
-            weighted_parts.append((reference_fit, 0.10))
-        total_weight = sum(weight for _, weight in weighted_parts)
-        if not total_weight:
-            return 0.0
-        blended = sum(score * weight for score, weight in weighted_parts) / total_weight
-        return clamp(blended)
+    def _journal_article_corpus(self, journal: JournalProfile) -> str:
+        article_text = " ".join(self._article_text(article) for article in journal.recent_articles)
+        fallback = " ".join([journal.title, journal.aims_and_scope, " ".join(journal.keywords)])
+        return article_text or fallback
 
-    def _article_section_fit(self, manuscript: ManuscriptProfile, journal: JournalProfile) -> float:
-        if not journal.recent_articles:
+    def _article_text(self, article) -> str:
+        return "\n".join(
+            [
+                article.title,
+                " ".join(article.keywords),
+                article.abstract_snippet,
+            ]
+        )
+
+    def _best_article_fit(self, manuscript_query: str, journal: JournalProfile) -> float:
+        article_texts = [self._article_text(article) for article in journal.recent_articles if normalize_space(self._article_text(article))]
+        if not article_texts:
             return 0.0
-        article_scores: list[float] = []
+        similarities = hybrid_similarity_scores(manuscript_query, article_texts)
+        return clamp(top_k_mean(similarities, k=2, default=0.0))
+
+    def _keyword_fit(self, manuscript: ManuscriptProfile, journal: JournalProfile) -> float:
+        flattened_terms: list[str] = [*journal.keywords, *journal.subdisciplines]
         for article in journal.recent_articles:
-            section_scores: list[tuple[float, float]] = [
-                (cosine_similarity_scores(manuscript.title, [article.title])[0], 0.25),
-                (cosine_similarity_scores(manuscript.abstract, [article.abstract_snippet])[0], 0.25),
-                (keyword_overlap(manuscript.keywords, article.keywords), 0.20),
-            ]
-            has_oa_full_text = article.is_oa is not False and normalize_space(article.full_text)
-            if has_oa_full_text:
-                section_scores.append((cosine_similarity_scores(manuscript.full_text, [article.full_text])[0], 0.30))
-            weight_sum = sum(weight for _, weight in section_scores)
-            if not weight_sum:
-                continue
-            article_score = sum(score * weight for score, weight in section_scores) / weight_sum
-            article_scores.append(article_score)
-        return clamp(max(article_scores, default=0.0))
+            flattened_terms.extend(article.keywords)
+            flattened_terms.extend(extract_candidate_terms(article.title, top_k=6))
+        flattened_terms = list(dict.fromkeys(term for term in flattened_terms if normalize_space(term)))
+        manuscript_terms = [*manuscript.keywords, *manuscript.extracted_terms, *manuscript.legal_terms]
+        return keyword_overlap(manuscript_terms, flattened_terms)
 
-    def _reference_similarity_fit(self, manuscript: ManuscriptProfile, journal: JournalProfile) -> float | None:
-        if not normalize_space(manuscript.references_text):
-            return None
-        article_references = [
-            normalize_space(article.references_text)
-            for article in journal.recent_articles
-            if normalize_space(article.references_text)
-        ]
-        if not article_references:
-            return None
-        similarity_scores = cosine_similarity_scores(manuscript.references_text, article_references)
-        return clamp(max(similarity_scores, default=0.0))
+    def _core_fit(
+        self,
+        *,
+        scope_fit: float,
+        article_corpus_fit: float,
+        best_article_fit: float,
+        keyword_fit: float,
+    ) -> float:
+        return clamp(
+            (self.core_weights.scope_weight * scope_fit)
+            + (self.core_weights.article_corpus_weight * article_corpus_fit)
+            + (self.core_weights.best_article_weight * best_article_fit)
+            + (self.core_weights.keyword_weight * keyword_fit)
+        )
 
     def _preference_fit(
         self,
@@ -389,7 +580,7 @@ class HeuristicScoringEngine:
             return neutral_default, []
         matched = [pref for pref in preferences if manuscript_scores.get(pref, 0.0) > 0.0]
         if not matched:
-            return 0.18, []
+            return 0.22, []
         scores = [manuscript_scores[pref] for pref in matched]
         return clamp(safe_mean(scores, default=0.0)), matched
 
@@ -411,13 +602,20 @@ class HeuristicScoringEngine:
         cycle_score = 0.50
         if journal.review_cycle_months is not None:
             cycle_score = clamp(1.0 - (journal.review_cycle_months / 12.0), 0.10, 1.0)
-        return clamp(0.62 * acceptance_score + 0.38 * cycle_score)
+        return clamp((0.62 * acceptance_score) + (0.38 * cycle_score))
 
     def _build_rationale(
         self,
+        *,
         manuscript: ManuscriptProfile,
         journal: JournalProfile,
-        content_fit: float,
+        manuscript_subfields: SubfieldProfile,
+        journal_subfields: SubfieldProfile,
+        bucket_fit: float,
+        scope_fit: float,
+        article_corpus_fit: float,
+        best_article_fit: float,
+        keyword_fit: float,
         methodology_fit: float,
         editorial_fit: float,
         legal_alignment: float,
@@ -425,28 +623,34 @@ class HeuristicScoringEngine:
         matched_editorials: list[str],
     ) -> str:
         reasons: list[str] = []
-        if content_fit >= 0.68:
-            reasons.append("scope and article topics are strongly aligned")
-        elif content_fit >= 0.50:
-            reasons.append("scope alignment is moderate")
+        if manuscript_subfields.primary and journal_subfields.primary and bucket_fit >= 0.48:
+            reasons.append(f"subfield bucket match: {bucket_label(journal_subfields.primary)}")
+        if scope_fit >= 0.60:
+            reasons.append("aims and scope fit is strong")
+        elif scope_fit >= 0.45:
+            reasons.append("aims and scope fit is moderate")
+        if article_corpus_fit >= 0.60:
+            reasons.append("recent published article corpus is highly similar")
+        elif best_article_fit >= 0.58:
+            reasons.append("one or more recent published articles are closely aligned")
+        if keyword_fit >= 0.25:
+            reasons.append("keyword overlap with recent articles is strong")
         if manuscript.legal_topic_score >= 0.55:
             if legal_alignment >= 0.70:
-                reasons.append("legal-profile alignment is strong")
+                reasons.append("journal remains strongly law-aligned")
             elif legal_alignment < 0.40:
-                reasons.append("journal is weakly aligned with a law-focused manuscript")
+                reasons.append("journal is not strongly law-aligned for this manuscript")
         if matched_methodologies:
             reasons.append(f"method fit: {', '.join(matched_methodologies)}")
         elif methodology_fit < 0.30:
-            reasons.append("method profile is not a strong match")
+            reasons.append("method profile overlap is limited")
         if matched_editorials:
-            reasons.append(f"editorial preference fit: {', '.join(matched_editorials)}")
+            reasons.append(f"editorial fit: {', '.join(matched_editorials)}")
         elif editorial_fit < 0.30:
             reasons.append("editorial emphasis overlap is limited")
         if journal.jcr_quartile:
             reasons.append(f"JCR {journal.jcr_quartile}")
-        if journal.review_cycle_months is not None:
-            reasons.append(f"review cycle about {journal.review_cycle_months:g} months")
-        return "; ".join(reasons) if reasons else "general scope fit based recommendation"
+        return "; ".join(reasons) if reasons else "journal selected through bucket-first reranking and article corpus similarity"
 
     def _match_level(self, probability: float) -> str:
         if probability >= 0.80:
@@ -456,14 +660,6 @@ class HeuristicScoringEngine:
         if probability >= 0.50:
             return "Medium"
         return "Low"
-
-    def _extract_concepts(self, text: str) -> list[str]:
-        lowered = normalize_space(text).lower()
-        concepts: list[str] = []
-        for concept, aliases in CONCEPT_ALIASES.items():
-            if any(alias.lower() in lowered for alias in aliases):
-                concepts.append(concept)
-        return concepts
 
     def _extract_legal_signals(self, text: str) -> tuple[list[str], float]:
         lowered = normalize_space(text).lower()
@@ -504,9 +700,9 @@ class HeuristicScoringEngine:
         direct_hits = sum(1 for term in DIRECT_LAW_JOURNAL_TERMS if term in journal_text)
         adjacent_hits = sum(1 for term in LAW_ADJACENT_JOURNAL_TERMS if term in journal_text)
         if direct_hits:
-            return clamp(0.72 + 0.10 * min(direct_hits, 3))
+            return clamp(0.72 + (0.10 * min(direct_hits, 3)))
         if adjacent_hits:
-            return clamp(0.42 + 0.08 * min(adjacent_hits, 3))
+            return clamp(0.42 + (0.08 * min(adjacent_hits, 3)))
         return 0.18
 
     def _legal_alignment(self, manuscript: ManuscriptProfile, journal: JournalProfile) -> float:
@@ -514,4 +710,111 @@ class HeuristicScoringEngine:
             return 0.50
         journal_affinity = self._journal_legal_affinity(journal)
         legal_overlap = keyword_overlap(manuscript.legal_terms, self._journal_legal_terms(journal))
-        return clamp(0.65 * journal_affinity + 0.35 * legal_overlap)
+        return clamp((0.65 * journal_affinity) + (0.35 * legal_overlap))
+
+    def _manuscript_subfield_profile(self, manuscript: ManuscriptProfile) -> SubfieldProfile:
+        return SubfieldProfile(
+            scores=manuscript.subfield_scores,
+            primary=manuscript.primary_subfield,
+            focus=tuple(manuscript.focus_subfields),
+        )
+
+    def _journal_subfield_profile(self, journal: JournalProfile) -> SubfieldProfile:
+        article_keywords = [keyword for article in journal.recent_articles for keyword in article.keywords]
+        article_titles = [article.title for article in journal.recent_articles]
+        article_abstracts = [article.abstract_snippet[:1200] for article in journal.recent_articles if normalize_space(article.abstract_snippet)]
+        return build_law_subfield_profile(
+            title=journal.title,
+            keywords=[*journal.keywords, *journal.subdisciplines, *article_keywords, *extract_candidate_terms(" ".join(article_titles), top_k=20)],
+            text_segments=[journal.aims_and_scope, *article_titles, *article_abstracts],
+            subdisciplines=journal.subdisciplines,
+        )
+
+    def _journal_key(self, journal: JournalProfile) -> str:
+        return journal.journal_id or journal.title.lower()
+
+    def _bucket_signal_weight(
+        self,
+        manuscript: ManuscriptProfile,
+        *,
+        bucket_confidence: float,
+        stage_focus_count: int,
+    ) -> float:
+        if not manuscript.primary_subfield or manuscript.primary_subfield == GENERAL_LAW_REVIEW_BUCKET:
+            return 0.03
+        if bucket_confidence >= 0.52 and stage_focus_count <= 2:
+            return 0.08
+        if bucket_confidence >= 0.42:
+            return 0.05
+        return 0.03
+
+    def _overexposure_penalty(
+        self,
+        *,
+        manuscript_subfields: SubfieldProfile,
+        journal: JournalProfile,
+        journal_subfields: SubfieldProfile,
+        bucket_fit: float,
+        bucket_confidence: float,
+        stage_focus_buckets: set[str],
+        scope_fit: float,
+        article_corpus_fit: float,
+        best_article_fit: float,
+        legal_alignment: float,
+    ) -> tuple[float, str | None]:
+        rule = OVEREXPOSED_JOURNAL_RULES.get(normalize_title_key(journal.title))
+        if rule is None:
+            return 1.0, None
+
+        manuscript_primary = manuscript_subfields.primary
+        journal_primary = journal_subfields.primary
+        protected_match = (
+            manuscript_primary is not None
+            and manuscript_primary in rule.protected_buckets
+            and (
+                journal_primary == manuscript_primary
+                or manuscript_primary in journal_subfields.focus
+                or bucket_fit >= 0.42
+            )
+        )
+        strong_release = (
+            bucket_fit >= rule.release_bucket_fit
+            and (
+                scope_fit >= rule.release_scope_fit
+                or best_article_fit >= rule.release_best_article_fit
+                or article_corpus_fit >= (rule.release_scope_fit - 0.02)
+            )
+        )
+        if protected_match or strong_release:
+            return 1.0, None
+
+        penalty = rule.penalty_multiplier
+        reasons: list[str] = []
+
+        if manuscript_primary and manuscript_primary not in rule.protected_buckets:
+            penalty *= 0.95
+            reasons.append("primary subfield mismatch")
+        if stage_focus_buckets and journal_primary and journal_primary not in stage_focus_buckets and bucket_confidence >= 0.46:
+            penalty *= 0.96
+            reasons.append("outside stage-one focus")
+        if legal_alignment < 0.66:
+            penalty *= 0.97
+        if scope_fit < rule.release_scope_fit and best_article_fit < rule.release_best_article_fit:
+            penalty *= 0.97
+        if journal_primary == GENERAL_LAW_REVIEW_BUCKET and manuscript_primary and manuscript_primary != GENERAL_LAW_REVIEW_BUCKET and bucket_fit < 0.38:
+            penalty *= 0.95
+            reasons.append("general law review overreach")
+        if (
+            journal_primary == "international_comparative_law"
+            and manuscript_primary
+            and manuscript_primary != "international_comparative_law"
+            and bucket_fit < 0.46
+        ):
+            penalty *= 0.95
+            reasons.append("international-law drift")
+
+        penalty = clamp(penalty, 0.68, 1.0)
+        if penalty >= 0.995:
+            return 1.0, None
+        reason_text = ", ".join(reasons) if reasons else "historically over-predicted venue"
+        return penalty, reason_text
