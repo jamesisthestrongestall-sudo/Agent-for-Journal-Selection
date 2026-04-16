@@ -16,6 +16,13 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from journal_agent.models.schemas import JournalProfile, ManuscriptProfile, RecommendationResult
+from journal_agent.ranking.subfields import (
+    GENERAL_LAW_REVIEW_BUCKET,
+    SubfieldProfile,
+    bucket_label,
+    bucket_similarity,
+    build_law_subfield_profile,
+)
 from journal_agent.utils.text_processing import (
     TOKEN_PATTERN,
     clamp,
@@ -27,6 +34,7 @@ from journal_agent.utils.text_processing import (
 
 
 VALIDATION_METRICS = {"top1_accuracy", "top3_accuracy", "top5_accuracy", "mrr"}
+TECHNOLOGY_BUCKET = "technology_privacy_ip"
 FEATURE_NAMES = (
     "scope_similarity",
     "recent_article_similarity",
@@ -101,6 +109,9 @@ class CandidateJournalProfile:
     journal_title_text: str
     keyword_pool: tuple[str, ...]
     publication_count: int
+    subfield_scores: dict[str, float] = field(default_factory=dict)
+    primary_subfield: str | None = None
+    focus_subfields: tuple[str, ...] = ()
     excluded_recent_articles_text: dict[str, str] = field(default_factory=dict)
     journal_payload: dict[str, Any] = field(default_factory=dict)
 
@@ -269,6 +280,7 @@ class SupervisedJournalDatasetBuilder:
                 for article in journal.recent_articles
                 if normalize_space(article.title) or normalize_space(article.abstract_snippet) or article.keywords
             )
+        journal_subfields = self._journal_subfield_profile(journal)
         return CandidateJournalProfile(
             journal_id=journal.journal_id or normalize_title_key(journal.title),
             title=journal.title,
@@ -278,12 +290,35 @@ class SupervisedJournalDatasetBuilder:
             journal_title_text=normalize_space(journal.title),
             keyword_pool=tuple(item for item in keyword_pool if normalize_space(item)),
             publication_count=publication_count,
+            subfield_scores=dict(journal_subfields.scores),
+            primary_subfield=journal_subfields.primary,
+            focus_subfields=tuple(journal_subfields.focus),
             excluded_recent_articles_text=excluded_recent_articles_text,
             journal_payload=journal.model_dump(mode="json"),
         )
 
     def _article_profile_text(self, sample: SupervisedArticleSample) -> str:
         return normalize_space("\n".join([sample.title, sample.abstract, " ".join(sample.keywords)]))
+
+    def _journal_subfield_profile(self, journal: JournalProfile) -> SubfieldProfile:
+        article_keywords = [keyword for article in journal.recent_articles for keyword in article.keywords]
+        article_titles = [article.title for article in journal.recent_articles]
+        article_abstracts = [
+            article.abstract_snippet[:1200]
+            for article in journal.recent_articles
+            if normalize_space(article.abstract_snippet)
+        ]
+        return build_law_subfield_profile(
+            title=journal.title,
+            keywords=[
+                *journal.keywords,
+                *journal.subdisciplines,
+                *article_keywords,
+                *extract_candidate_terms(" ".join(article_titles), top_k=20),
+            ],
+            text_segments=[journal.aims_and_scope, *article_titles, *article_abstracts],
+            subdisciplines=journal.subdisciplines,
+        )
 
 
 class SupervisedJournalRanker:
@@ -408,7 +443,7 @@ class SupervisedJournalRanker:
     def load(cls, path: str | Path) -> "SupervisedJournalRanker":
         payload = pickle.loads(Path(path).read_bytes())
         ranker = cls()
-        ranker.candidate_profiles = payload["candidate_profiles"]
+        ranker.candidate_profiles = [ranker._coerce_candidate_profile(profile) for profile in payload["candidate_profiles"]]
         ranker.candidate_indices = {profile.journal_id: index for index, profile in enumerate(ranker.candidate_profiles)}
         ranker.encoder = payload["encoder"]
         ranker.model = payload["model"]
@@ -456,7 +491,12 @@ class SupervisedJournalRanker:
             keywords=tuple(keyword for keyword in manuscript.keywords if normalize_space(keyword)),
             language=manuscript.language,
         )
-        predictions = self._rank_sample(sample, allowed_ids=allowed_ids)
+        manuscript_subfields = self._manuscript_subfield_profile(manuscript)
+        predictions = self._rank_sample(
+            sample,
+            allowed_ids=allowed_ids,
+            manuscript_subfields=manuscript_subfields,
+        )
 
         recommendations: list[RecommendationResult] = []
         for prediction in predictions[:top_k]:
@@ -464,18 +504,28 @@ class SupervisedJournalRanker:
             publication_fit = prediction["publication_count_ratio"]
             keyword_fit = max(prediction["keyword_overlap"], prediction["term_overlap"])
             rationale_parts = []
+            if prediction["bucket_fit"] >= 0.52 and prediction["journal_primary_subfield"]:
+                rationale_parts.append(
+                    f"subfield bucket match: {bucket_label(prediction['journal_primary_subfield'])}"
+                )
             if prediction["scope_similarity"] >= 0.45:
                 rationale_parts.append("Aims & Scope matching is strong")
             if prediction["recent_article_similarity"] >= 0.45:
                 rationale_parts.append("recent 5-article profile is similar")
             if publication_fit >= 0.80:
                 rationale_parts.append("observed annual publication volume is high")
-            rationale = "; ".join(rationale_parts) if rationale_parts else "supervised score driven by scope, recent articles, and publication volume"
+            if prediction["generic_penalty"] < 1.0 and prediction["generic_penalty_reason"]:
+                rationale_parts.append(prediction["generic_penalty_reason"])
+            rationale = (
+                "; ".join(rationale_parts)
+                if rationale_parts
+                else "supervised score driven by subfield prior, scope, recent articles, and publication volume"
+            )
             recommendations.append(
                 RecommendationResult(
                     journal=journal,
                     content_fit=clamp((0.58 * prediction["scope_similarity"]) + (0.42 * prediction["recent_article_similarity"])),
-                    bucket_fit=0.0,
+                    bucket_fit=prediction["bucket_fit"],
                     scope_fit=prediction["scope_similarity"],
                     article_corpus_fit=prediction["recent_article_similarity"],
                     best_article_fit=0.0,
@@ -484,14 +534,14 @@ class SupervisedJournalRanker:
                     editorial_fit=0.0,
                     venue_quality=publication_fit,
                     feasibility=publication_fit,
-                    overall_score=prediction["probability"],
-                    match_probability=prediction["probability"],
-                    overexposure_penalty=1.0,
-                    overexposure_penalty_reason=None,
-                    match_level=self._match_level(prediction["probability"]),
+                    overall_score=prediction["rerank_score"],
+                    match_probability=prediction["rerank_score"],
+                    overexposure_penalty=prediction["generic_penalty"],
+                    overexposure_penalty_reason=prediction["generic_penalty_reason"],
+                    match_level=self._match_level(prediction["rerank_score"]),
                     rationale=rationale,
-                    manuscript_primary_subfield=None,
-                    journal_primary_subfield=None,
+                    manuscript_primary_subfield=bucket_label(manuscript_subfields.primary) or None,
+                    journal_primary_subfield=bucket_label(prediction["journal_primary_subfield"]) or None,
                     matched_methodologies=[],
                     matched_editorial_signals=[],
                 )
@@ -616,10 +666,19 @@ class SupervisedJournalRanker:
         sample: SupervisedArticleSample,
         *,
         allowed_ids: set[str] | None = None,
+        manuscript_subfields: SubfieldProfile | None = None,
     ) -> list[dict[str, Any]]:
         if self.encoder is None or self.model is None or self.scope_block is None or self.recent_block is None or self.title_block is None:
             raise ValueError("Supervised model is not ready.")
         candidate_profiles = self.candidate_profiles
+        manuscript_subfields = manuscript_subfields or self._sample_subfield_profile(sample)
+        bucket_weight = self._bucket_rerank_weight(manuscript_subfields)
+        bucket_confidence = max(manuscript_subfields.scores.values(), default=0.0)
+        strong_specialized_bucket = (
+            manuscript_subfields.primary is not None
+            and manuscript_subfields.primary != GENERAL_LAW_REVIEW_BUCKET
+            and bucket_confidence >= 0.34
+        )
         max_publication_count = max((self._scaled_publication_count(profile.publication_count) for profile in candidate_profiles), default=1.0)
         query_block = self.encoder.encode([sample.query_text()])
         manuscript_title_block = self.encoder.encode([sample.title_text()])
@@ -663,16 +722,52 @@ class SupervisedJournalRanker:
         probabilities = self.model.predict_proba(features)[:, 1]
         predictions = []
         for profile, feature_row, probability in zip(profile_lookup, features, probabilities, strict=False):
+            journal_subfields = self._candidate_subfield_profile(profile)
+            bucket_fit = self._bucket_prior_score(manuscript_subfields, journal_subfields)
+            generic_penalty, generic_reason = self._generic_law_review_penalty(
+                manuscript_subfields,
+                journal_subfields,
+            )
+            if generic_penalty < 1.0:
+                bucket_fit = clamp(bucket_fit * generic_penalty)
+            overlap = any(bucket in journal_subfields.focus for bucket in manuscript_subfields.focus)
+            same_primary = bool(
+                manuscript_subfields.primary
+                and manuscript_subfields.primary == journal_subfields.primary
+            )
+            rerank_score = ((1.0 - bucket_weight) * float(probability)) + (bucket_weight * bucket_fit)
+            if same_primary:
+                rerank_score += 0.025 if manuscript_subfields.primary == TECHNOLOGY_BUCKET else 0.03
+            elif overlap:
+                rerank_score += 0.014
+            elif strong_specialized_bucket:
+                rerank_score *= 0.84 if manuscript_subfields.primary == TECHNOLOGY_BUCKET else 0.84
+            if generic_penalty < 1.0:
+                rerank_score *= generic_penalty
+            rerank_score = clamp(rerank_score)
             feature_map = dict(zip(self.feature_names, feature_row.tolist(), strict=False))
             feature_map.update(
                 {
                     "journal_id": profile.journal_id,
                     "journal_title": profile.title,
+                    "model_probability": float(probability),
                     "probability": float(probability),
+                    "bucket_fit": float(bucket_fit),
+                    "rerank_score": float(rerank_score),
+                    "journal_primary_subfield": profile.primary_subfield,
+                    "generic_penalty": float(generic_penalty),
+                    "generic_penalty_reason": generic_reason,
                 }
             )
             predictions.append(feature_map)
-        predictions.sort(key=lambda item: (-item["probability"], item["journal_title"].lower()))
+        predictions.sort(
+            key=lambda item: (
+                -item["rerank_score"],
+                -item["bucket_fit"],
+                -item["probability"],
+                item["journal_title"].lower(),
+            )
+        )
         return predictions
 
     def _evaluate(
@@ -772,3 +867,158 @@ class SupervisedJournalRanker:
         if publication_count is None:
             return 0.0
         return float(min(max(publication_count, 0), PUBLICATION_COUNT_CAP))
+
+    def _coerce_candidate_profile(self, profile: CandidateJournalProfile | dict[str, Any]) -> CandidateJournalProfile:
+        if isinstance(profile, CandidateJournalProfile):
+            payload = {
+                "journal_id": profile.journal_id,
+                "title": profile.title,
+                "language": profile.language,
+                "scope_text": profile.scope_text,
+                "recent_articles_text": profile.recent_articles_text,
+                "journal_title_text": profile.journal_title_text,
+                "keyword_pool": profile.keyword_pool,
+                "publication_count": profile.publication_count,
+                "excluded_recent_articles_text": profile.excluded_recent_articles_text,
+                "journal_payload": profile.journal_payload,
+            }
+        else:
+            payload = dict(profile)
+        journal = JournalProfile.model_validate(payload["journal_payload"])
+        journal_subfields = self._journal_subfield_profile(journal)
+        return CandidateJournalProfile(
+            journal_id=payload["journal_id"],
+            title=payload["title"],
+            language=payload.get("language"),
+            scope_text=payload["scope_text"],
+            recent_articles_text=payload["recent_articles_text"],
+            journal_title_text=payload["journal_title_text"],
+            keyword_pool=tuple(payload.get("keyword_pool", ())),
+            publication_count=int(payload.get("publication_count") or 1),
+            subfield_scores=dict(payload.get("subfield_scores") or journal_subfields.scores),
+            primary_subfield=payload.get("primary_subfield") or journal_subfields.primary,
+            focus_subfields=tuple(payload.get("focus_subfields") or journal_subfields.focus),
+            excluded_recent_articles_text=dict(payload.get("excluded_recent_articles_text", {})),
+            journal_payload=payload["journal_payload"],
+        )
+
+    def _journal_subfield_profile(self, journal: JournalProfile) -> SubfieldProfile:
+        article_keywords = [keyword for article in journal.recent_articles for keyword in article.keywords]
+        article_titles = [article.title for article in journal.recent_articles]
+        article_abstracts = [
+            article.abstract_snippet[:1200]
+            for article in journal.recent_articles
+            if normalize_space(article.abstract_snippet)
+        ]
+        return build_law_subfield_profile(
+            title=journal.title,
+            keywords=[
+                *journal.keywords,
+                *journal.subdisciplines,
+                *article_keywords,
+                *extract_candidate_terms(" ".join(article_titles), top_k=20),
+            ],
+            text_segments=[journal.aims_and_scope, *article_titles, *article_abstracts],
+            subdisciplines=journal.subdisciplines,
+        )
+
+    def _candidate_subfield_profile(self, profile: CandidateJournalProfile) -> SubfieldProfile:
+        return SubfieldProfile(
+            scores=dict(profile.subfield_scores),
+            primary=profile.primary_subfield,
+            focus=tuple(profile.focus_subfields),
+        )
+
+    def _sample_subfield_profile(self, sample: SupervisedArticleSample) -> SubfieldProfile:
+        query_terms = extract_candidate_terms(sample.query_text(), top_k=18)
+        return build_law_subfield_profile(
+            title=sample.title,
+            keywords=[*sample.keywords, *query_terms],
+            text_segments=[sample.abstract, sample.query_text()],
+        )
+
+    def _manuscript_subfield_profile(self, manuscript: ManuscriptProfile) -> SubfieldProfile:
+        if manuscript.subfield_scores or manuscript.primary_subfield or manuscript.focus_subfields:
+            return SubfieldProfile(
+                scores=dict(manuscript.subfield_scores),
+                primary=manuscript.primary_subfield,
+                focus=tuple(manuscript.focus_subfields),
+            )
+        return build_law_subfield_profile(
+            title=manuscript.title,
+            keywords=[*manuscript.keywords, *manuscript.extracted_terms, *manuscript.legal_terms],
+            text_segments=[manuscript.abstract, manuscript.full_text[:6000]],
+        )
+
+    def _bucket_prior_score(self, manuscript_subfields: SubfieldProfile, journal_subfields: SubfieldProfile) -> float:
+        if not manuscript_subfields.scores or not journal_subfields.scores:
+            return 0.0
+        base_score = bucket_similarity(manuscript_subfields, journal_subfields)
+        overlap = any(bucket in journal_subfields.focus for bucket in manuscript_subfields.focus)
+        same_primary = bool(
+            manuscript_subfields.primary
+            and manuscript_subfields.primary == journal_subfields.primary
+        )
+        technology_focus = TECHNOLOGY_BUCKET in manuscript_subfields.focus
+        if same_primary:
+            base_score += 0.10 if technology_focus else 0.12
+        elif overlap:
+            base_score += 0.06 if technology_focus else 0.08
+        if technology_focus and journal_subfields.primary == TECHNOLOGY_BUCKET:
+            base_score += 0.03
+        if (
+            manuscript_subfields.primary
+            and manuscript_subfields.primary != GENERAL_LAW_REVIEW_BUCKET
+            and journal_subfields.primary == GENERAL_LAW_REVIEW_BUCKET
+            and not overlap
+        ):
+            base_score *= 0.88
+        return clamp(base_score)
+
+    def _bucket_rerank_weight(self, manuscript_subfields: SubfieldProfile) -> float:
+        if not manuscript_subfields.primary or manuscript_subfields.primary == GENERAL_LAW_REVIEW_BUCKET:
+            return 0.10
+        top_score = max(manuscript_subfields.scores.values(), default=0.0)
+        if manuscript_subfields.primary == TECHNOLOGY_BUCKET:
+            if top_score >= 0.42:
+                return 0.30
+            return 0.24
+        if top_score >= 0.50 and len(manuscript_subfields.focus) <= 2:
+            return 0.28
+        if top_score >= 0.36:
+            return 0.20
+        return 0.14
+
+    def _generic_law_review_penalty(
+        self,
+        manuscript_subfields: SubfieldProfile,
+        journal_subfields: SubfieldProfile,
+    ) -> tuple[float, str | None]:
+        manuscript_primary = manuscript_subfields.primary
+        if not manuscript_primary or manuscript_primary == GENERAL_LAW_REVIEW_BUCKET:
+            return 1.0, None
+
+        general_score = journal_subfields.scores.get(GENERAL_LAW_REVIEW_BUCKET, 0.0)
+        if general_score < 0.38:
+            return 1.0, None
+
+        top_specialized = max(
+            (score for bucket, score in journal_subfields.scores.items() if bucket != GENERAL_LAW_REVIEW_BUCKET),
+            default=0.0,
+        )
+        specialized_gap = top_specialized - general_score
+        overlap = any(bucket in journal_subfields.focus for bucket in manuscript_subfields.focus)
+
+        if journal_subfields.primary == GENERAL_LAW_REVIEW_BUCKET:
+            penalty = 0.72 if not overlap else 0.80
+            return penalty, "generic law review penalty"
+
+        if specialized_gap < 0.08:
+            penalty = 0.76 if overlap else 0.72
+            return penalty, "generic law review penalty"
+        if specialized_gap < 0.16:
+            penalty = 0.84 if overlap else 0.78
+            return penalty, "generic law review penalty"
+        if specialized_gap < 0.24:
+            return 0.92, "generic law review penalty"
+        return 1.0, None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from journal_agent.data.sources import DatasetBuilder
@@ -9,6 +10,16 @@ from journal_agent.ranking.recommender import JournalRecommendationAgent
 from journal_agent.ranking.evaluation import RecommendationValidator
 from journal_agent.ranking.scoring import CorpusWeightProfile
 from journal_agent.ranking.supervised import SupervisedJournalDatasetBuilder, SupervisedJournalRanker
+
+
+def _console_safe(text: object) -> str:
+    value = str(text)
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        value.encode(encoding)
+        return value
+    except UnicodeEncodeError:
+        return value.encode(encoding, errors="replace").decode(encoding)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -144,17 +155,17 @@ def run_recommend(args: argparse.Namespace) -> None:
         top_k=args.top_k,
     )
     agent.export_results(recommendations, args.output)
-    print(f"Manuscript: {manuscript.title}")
-    print(f"Language: {manuscript.language}")
-    print(f"Output file: {Path(args.output).resolve()}")
+    print(_console_safe(f"Manuscript: {manuscript.title}"))
+    print(_console_safe(f"Language: {manuscript.language}"))
+    print(_console_safe(f"Output file: {Path(args.output).resolve()}"))
     print("Top recommendations:")
     for index, item in enumerate(recommendations[:5], start=1):
-        print(
+        print(_console_safe(
             f"{index}. {item.journal.title} | "
             f"overall={item.overall_score:.3f} | "
             f"probability={item.match_probability:.3f} | "
             f"level={item.match_level}"
-        )
+        ))
 
 
 def run_crawl(args: argparse.Namespace) -> None:

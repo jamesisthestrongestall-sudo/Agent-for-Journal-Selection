@@ -16,6 +16,7 @@ from journal_agent.utils.text_processing import (
 
 
 class ManuscriptParser:
+    TITLE_PATTERN = re.compile(r"^(?:title)\s*[:：]?\s*(.*)$", re.IGNORECASE)
     ABSTRACT_PATTERNS = [
         re.compile(
             r"(?:\u6458\u8981|abstract)\s*[:\uff1a]\s*(.+?)(?=(?:\u5173\u952e\u8bcd|\u5173\u952e\u5b57|introduction|\u5f15\u8a00|\n\d+[.\u3001]))",
@@ -25,6 +26,7 @@ class ManuscriptParser:
     KEYWORD_PATTERNS = [
         re.compile(r"(?:\u5173\u952e\u8bcd|\u5173\u952e\u5b57|keywords?)\s*[:\uff1a]\s*(.+)", re.IGNORECASE),
     ]
+    KEYWORD_HEADINGS = {"keywords", "keyword", "\u5173\u952e\u8bcd", "\u5173\u952e\u5b57"}
     REFERENCE_HEADING_PATTERNS = [
         re.compile(r"^(?:\u53c2\u8003\u6587\u732e|\u53c2\u8003\u4e66\u76ee|references|bibliography|works cited)\s*$", re.IGNORECASE),
     ]
@@ -175,9 +177,20 @@ class ManuscriptParser:
         return "\n".join(body_lines), "\n".join(footnote_lines)
 
     def _extract_title(self, text: str) -> str:
-        for line in text.splitlines():
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
             candidate = normalize_space(line)
             if not candidate:
+                continue
+            title_match = self.TITLE_PATTERN.match(candidate)
+            if title_match:
+                inline_title = normalize_space(title_match.group(1))
+                if inline_title:
+                    return inline_title
+                for fallback_line in lines[index + 1 :]:
+                    fallback_candidate = normalize_space(fallback_line)
+                    if fallback_candidate:
+                        return fallback_candidate
                 continue
             lower = candidate.lower()
             if lower.startswith(("abstract", "keywords")):
@@ -198,9 +211,22 @@ class ManuscriptParser:
         return ""
 
     def _extract_keywords(self, text: str) -> list[str]:
-        for line in text.splitlines():
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            normalized_line = normalize_space(line).lower()
             for pattern in self.KEYWORD_PATTERNS:
                 match = pattern.search(line)
                 if match:
-                    return parse_keyword_string(match.group(1))
+                    inline_keywords = parse_keyword_string(match.group(1))
+                    if inline_keywords:
+                        return inline_keywords
+                    for fallback_line in lines[index + 1 :]:
+                        fallback_candidate = normalize_space(fallback_line)
+                        if fallback_candidate:
+                            return parse_keyword_string(fallback_candidate)
+            if normalized_line in self.KEYWORD_HEADINGS:
+                for fallback_line in lines[index + 1 :]:
+                    fallback_candidate = normalize_space(fallback_line)
+                    if fallback_candidate:
+                        return parse_keyword_string(fallback_candidate)
         return []

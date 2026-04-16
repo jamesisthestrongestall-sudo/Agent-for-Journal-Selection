@@ -66,7 +66,21 @@ LEGAL_SIGNAL_GROUPS = [
     {
         "name": "criminal_law",
         "weight": 0.14,
-        "aliases": ["criminal law", "crime", "criminal justice", "penology", "policing"],
+        "aliases": [
+            "criminal law",
+            "crime",
+            "criminal justice",
+            "penology",
+            "policing",
+            "rape",
+            "marital rape",
+            "sexual assault",
+            "sexual violence",
+            "consent",
+            "coercion",
+            "intimate partner violence",
+            "violence against women",
+        ],
     },
     {
         "name": "comparative_international_law",

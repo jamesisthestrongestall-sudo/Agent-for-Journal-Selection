@@ -62,6 +62,9 @@ class JournalRecommendationAgent:
             discipline=discipline,
         )
         journals = self.repository.load_journals(dataset_path, discipline=discipline)
+        taxonomy = self.repository.load_taxonomy(taxonomy_path)
+        engine = CorpusScoringEngine(taxonomy)
+        manuscript = engine.enrich_manuscript(manuscript)
         if model_path:
             ranker = SupervisedJournalRanker.load(model_path)
             journals = self._select_candidate_journals(journals, manuscript, discipline=discipline)
@@ -73,9 +76,6 @@ class JournalRecommendationAgent:
             recommendations = ranker.recommend(manuscript, candidate_journals=journals, top_k=top_k)
             return manuscript, recommendations[:top_k]
 
-        taxonomy = self.repository.load_taxonomy(taxonomy_path)
-        engine = CorpusScoringEngine(taxonomy)
-        manuscript = engine.enrich_manuscript(manuscript)
         journals = self._select_candidate_journals(journals, manuscript, discipline=discipline)
         if not journals:
             raise ValueError(
