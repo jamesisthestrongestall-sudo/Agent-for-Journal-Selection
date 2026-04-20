@@ -147,7 +147,7 @@ class OpenAlexClient:
         results = payload.get("results", []) if payload else []
         return _best_title_match(results, title)
 
-    def fetch_recent_articles(self, *, source_id: str, limit: int = 5) -> list[JournalArticleExample]:
+    def fetch_recent_articles(self, *, source_id: str, limit: int = 15) -> list[JournalArticleExample]:
         payload = self._get_json(
             "/works",
             params={
@@ -512,7 +512,7 @@ class JournalProfileEnricher:
     def __init__(
         self,
         *,
-        recent_article_count: int = 5,
+        recent_article_count: int = 15,
         request_delay_sec: float = 0.0,
         cache_dir: str | Path | None = None,
     ) -> None:

@@ -6,9 +6,9 @@
       "path": "ssci_law_journals_from_xlsx.csv",
       "law_only": true,
       "focus_label": "law",
-      "recent_article_count": 5,
+      "recent_article_count": 15,
       "request_delay_sec": 0.0,
-      "cache_dir": "cache/ssci_law_list_enrichment_v2",
+      "cache_dir": "cache/ssci_law_list_enrichment_v3",
       "static_fields": {
         "indexing": ["SSCI"],
         "source_tags": ["ssci_xlsx_list", "ssci_law_list", "ssci_local_csv"]

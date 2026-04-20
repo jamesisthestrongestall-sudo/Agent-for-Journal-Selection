@@ -336,7 +336,7 @@ class SsciCsvEnrichedSource(SsciCsvLookupSource):
         if max_journals is not None:
             base_profiles = base_profiles[: int(max_journals)]
         enricher = JournalProfileEnricher(
-            recent_article_count=int(self.config.get("recent_article_count", 5)),
+            recent_article_count=int(self.config.get("recent_article_count", 15)),
             request_delay_sec=float(self.config.get("request_delay_sec", 0.0)),
             cache_dir=(self.base_dir / self.config["cache_dir"]).resolve() if self.config.get("cache_dir") else None,
         )

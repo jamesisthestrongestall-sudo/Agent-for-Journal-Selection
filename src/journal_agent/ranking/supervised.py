@@ -5,6 +5,7 @@ import json
 import math
 import pickle
 import random
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,7 @@ class SupervisedArticleSample:
     abstract: str
     keywords: tuple[str, ...] = ()
     language: str = "en"
+    article_rank: int = 0
 
     def query_text(self) -> str:
         keyword_text = " ".join(self.keywords)
@@ -166,12 +168,11 @@ class HybridTextEncoder:
 
 
 class SupervisedJournalDatasetBuilder:
-    def __init__(self, *, max_articles_per_journal: int = 5, random_seed: int = 42) -> None:
+    def __init__(self, *, max_articles_per_journal: int = 8, random_seed: int = 42) -> None:
         self.max_articles_per_journal = max_articles_per_journal
         self.random_seed = random_seed
 
     def build(self, journals: list[JournalProfile]) -> SupervisedDataset:
-        rng = random.Random(self.random_seed)
         candidate_profiles: list[CandidateJournalProfile] = []
         train_samples: list[SupervisedArticleSample] = []
         validation_samples: list[SupervisedArticleSample] = []
@@ -180,24 +181,22 @@ class SupervisedJournalDatasetBuilder:
         journals_without_samples = 0
 
         for journal in journals:
-            samples = self._journal_samples(journal)
-            candidate_profiles.append(self._candidate_profile(journal, samples))
-            if not samples:
+            selected_samples, journal_train, journal_validation, journal_test = self._journal_split(journal)
+            candidate_profiles.append(self._candidate_profile(journal, selected_samples))
+            if not selected_samples:
                 journals_without_samples += 1
                 continue
             journals_with_samples += 1
-            split_samples = list(samples)
-            rng.shuffle(split_samples)
-            train_cut, validation_cut, test_cut = self._split_counts(len(split_samples))
-            train_samples.extend(split_samples[:train_cut])
-            validation_samples.extend(split_samples[train_cut : train_cut + validation_cut])
-            test_samples.extend(split_samples[train_cut + validation_cut : train_cut + validation_cut + test_cut])
+            train_samples.extend(journal_train)
+            validation_samples.extend(journal_validation)
+            test_samples.extend(journal_test)
 
         split_summary = {
             "candidate_journal_count": len(candidate_profiles),
             "journals_with_samples": journals_with_samples,
             "journals_without_samples": journals_without_samples,
             "max_articles_per_journal": self.max_articles_per_journal,
+            "selection_strategy": "representative_mmr_fixed_holdouts",
             "train_samples": len(train_samples),
             "validation_samples": len(validation_samples),
             "test_samples": len(test_samples),
@@ -244,11 +243,36 @@ class SupervisedJournalDatasetBuilder:
                     abstract=abstract,
                     keywords=keywords,
                     language=journal.language or "en",
+                    article_rank=index,
                 )
             )
-            if len(usable) >= self.max_articles_per_journal:
-                break
         return usable
+
+    def _journal_split(
+        self,
+        journal: JournalProfile,
+    ) -> tuple[
+        list[SupervisedArticleSample],
+        list[SupervisedArticleSample],
+        list[SupervisedArticleSample],
+        list[SupervisedArticleSample],
+    ]:
+        usable = self._journal_samples(journal)
+        if not usable:
+            return [], [], [], []
+
+        ranked = self._rank_representative_samples(journal, usable)
+        selected_total = min(self.max_articles_per_journal, len(ranked))
+        train_count, validation_count, test_count = self._split_counts(selected_total)
+        holdout_candidates = self._fixed_holdouts(journal, ranked)
+        validation = holdout_candidates[:validation_count]
+        test = holdout_candidates[validation_count : validation_count + test_count]
+        holdout_ids = {sample.article_id for sample in [*validation, *test]}
+        train = [sample for sample in ranked if sample.article_id not in holdout_ids][:train_count]
+
+        selected_lookup = {sample.article_id: sample for sample in [*train, *validation, *test]}
+        selected = [sample for sample in ranked if sample.article_id in selected_lookup]
+        return selected, train, validation, test
 
     def _candidate_profile(self, journal: JournalProfile, samples: list[SupervisedArticleSample]) -> CandidateJournalProfile:
         scope_text = normalize_space(
@@ -299,6 +323,119 @@ class SupervisedJournalDatasetBuilder:
 
     def _article_profile_text(self, sample: SupervisedArticleSample) -> str:
         return normalize_space("\n".join([sample.title, sample.abstract, " ".join(sample.keywords)]))
+
+    def _rank_representative_samples(
+        self,
+        journal: JournalProfile,
+        samples: list[SupervisedArticleSample],
+    ) -> list[SupervisedArticleSample]:
+        if len(samples) <= 1:
+            return samples
+
+        profile_terms = self._journal_profile_terms(journal, samples)
+        sample_terms = {sample.article_id: self._sample_terms(sample) for sample in samples}
+        term_frequencies: Counter[str] = Counter()
+        for terms in sample_terms.values():
+            term_frequencies.update(terms)
+
+        sample_count = len(samples)
+        base_scores: dict[str, float] = {}
+        for sample in samples:
+            terms = sample_terms[sample.article_id]
+            scope_overlap = self._term_set_overlap(terms, profile_terms)
+            centrality = self._corpus_centrality(terms, term_frequencies, sample_count)
+            abstract_signal = clamp(len(sample.abstract) / 1200.0)
+            keyword_signal = clamp(len(sample.keywords) / 6.0)
+            recency_signal = 1.0 - ((sample.article_rank - 1) / max(1, sample_count - 1))
+            base_scores[sample.article_id] = (
+                (0.38 * scope_overlap)
+                + (0.30 * centrality)
+                + (0.18 * abstract_signal)
+                + (0.08 * keyword_signal)
+                + (0.06 * recency_signal)
+            )
+
+        selected: list[SupervisedArticleSample] = []
+        remaining = list(samples)
+        while remaining:
+            best_sample: SupervisedArticleSample | None = None
+            best_score = -1.0
+            for candidate in remaining:
+                candidate_terms = sample_terms[candidate.article_id]
+                redundancy = max(
+                    (self._term_set_overlap(candidate_terms, sample_terms[item.article_id]) for item in selected),
+                    default=0.0,
+                )
+                mmr_score = (0.82 * base_scores[candidate.article_id]) - (0.18 * redundancy)
+                if mmr_score > best_score:
+                    best_score = mmr_score
+                    best_sample = candidate
+            if best_sample is None:
+                break
+            selected.append(best_sample)
+            remaining = [sample for sample in remaining if sample.article_id != best_sample.article_id]
+
+        return selected
+
+    def _fixed_holdouts(
+        self,
+        journal: JournalProfile,
+        ranked_samples: list[SupervisedArticleSample],
+    ) -> list[SupervisedArticleSample]:
+        holdouts = list(ranked_samples)
+        journal_key = journal.journal_id or normalize_title_key(journal.title)
+        rng = random.Random(f"{self.random_seed}:{journal_key}")
+        rng.shuffle(holdouts)
+        return holdouts
+
+    def _journal_profile_terms(
+        self,
+        journal: JournalProfile,
+        samples: list[SupervisedArticleSample],
+    ) -> set[str]:
+        seed_terms = [
+            *journal.keywords,
+            *journal.subdisciplines,
+            *[sample.title for sample in samples],
+            *[sample.abstract[:600] for sample in samples if sample.abstract],
+        ]
+        extracted = extract_candidate_terms(
+            " ".join([journal.title, journal.aims_and_scope, *seed_terms]),
+            top_k=48,
+        )
+        return {
+            normalize_space(term).lower()
+            for term in [*journal.keywords, *journal.subdisciplines, *extracted]
+            if normalize_space(term)
+        }
+
+    def _sample_terms(self, sample: SupervisedArticleSample) -> set[str]:
+        extracted = extract_candidate_terms(sample.query_text(), top_k=24)
+        return {
+            normalize_space(term).lower()
+            for term in [*sample.keywords, *extracted]
+            if normalize_space(term)
+        }
+
+    def _term_set_overlap(self, left: set[str], right: set[str]) -> float:
+        if not left or not right:
+            return 0.0
+        intersection = len(left & right)
+        union = len(left | right)
+        if union == 0:
+            return 0.0
+        return intersection / union
+
+    def _corpus_centrality(
+        self,
+        terms: set[str],
+        term_frequencies: Counter[str],
+        sample_count: int,
+    ) -> float:
+        if not terms:
+            return 0.0
+        total = sum(term_frequencies[term] for term in terms)
+        return min(total / (len(terms) * max(sample_count, 1)), 1.0)
 
     def _journal_subfield_profile(self, journal: JournalProfile) -> SubfieldProfile:
         article_keywords = [keyword for article in journal.recent_articles for keyword in article.keywords]
@@ -511,7 +648,7 @@ class SupervisedJournalRanker:
             if prediction["scope_similarity"] >= 0.45:
                 rationale_parts.append("Aims & Scope matching is strong")
             if prediction["recent_article_similarity"] >= 0.45:
-                rationale_parts.append("recent 5-article profile is similar")
+                rationale_parts.append("recent article profile is similar")
             if publication_fit >= 0.80:
                 rationale_parts.append("observed annual publication volume is high")
             if prediction["generic_penalty"] < 1.0 and prediction["generic_penalty_reason"]:

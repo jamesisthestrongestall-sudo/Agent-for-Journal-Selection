@@ -108,7 +108,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to an enriched journal dataset JSON with aims & scope and recent articles.",
     )
     supervised.add_argument("--discipline", default="law", help="Discipline key. Default: law.")
-    supervised.add_argument("--max-articles-per-journal", type=int, default=5, help="Maximum recent articles per journal to use as labeled samples.")
+    supervised.add_argument("--max-articles-per-journal", type=int, default=8, help="Maximum representative recent articles per journal to use as labeled samples.")
+    supervised.add_argument("--article-count-grid", help="Optional comma-separated sweep, for example: 5,6,7,8")
     supervised.add_argument(
         "--target-metric",
         default="top3_accuracy",
@@ -240,27 +241,74 @@ def run_evaluate(args: argparse.Namespace) -> None:
 def run_train_supervised(args: argparse.Namespace) -> None:
     repository = JournalRepository()
     journals = repository.load_journals(args.dataset, discipline=args.discipline)
-    builder = SupervisedJournalDatasetBuilder(
-        max_articles_per_journal=args.max_articles_per_journal,
-        random_seed=args.random_seed,
-    )
-    dataset = builder.build(journals)
-    ranker = SupervisedJournalRanker()
-    report_payload, validation_rows, test_rows = ranker.fit(dataset, target_metric=args.target_metric)
+    article_count_grid = _parse_article_count_grid(args.article_count_grid)
+    candidate_counts = article_count_grid or [args.max_articles_per_journal]
+    best_run: dict[str, object] | None = None
+    sweep_rows: list[dict[str, object]] = []
+
+    for article_count in candidate_counts:
+        builder = SupervisedJournalDatasetBuilder(
+            max_articles_per_journal=article_count,
+            random_seed=args.random_seed,
+        )
+        dataset = builder.build(journals)
+        ranker = SupervisedJournalRanker()
+        report_payload, validation_rows, test_rows = ranker.fit(dataset, target_metric=args.target_metric)
+        validation_metric = float(report_payload["validation_metrics"][args.target_metric])
+        sweep_rows.append(
+            {
+                "article_count": article_count,
+                "validation_metric": validation_metric,
+                "validation_top1": report_payload["validation_metrics"]["top1_accuracy"],
+                "validation_top3": report_payload["validation_metrics"]["top3_accuracy"],
+                "test_top1": report_payload["test_metrics"]["top1_accuracy"],
+                "test_top3": report_payload["test_metrics"]["top3_accuracy"],
+            }
+        )
+        if best_run is None or validation_metric > float(best_run["validation_metric"]):
+            best_run = {
+                "article_count": article_count,
+                "validation_metric": validation_metric,
+                "dataset": dataset,
+                "ranker": ranker,
+                "report_payload": report_payload,
+                "validation_rows": validation_rows,
+                "test_rows": test_rows,
+            }
+
+    if best_run is None:
+        raise ValueError("No supervised training run was produced.")
+
+    report_payload = dict(best_run["report_payload"])
+    report_payload["article_count_sweep"] = sweep_rows
+    ranker = best_run["ranker"]
     ranker.save(args.model_output)
     ranker.save_report(
         report_path=args.report,
         report_payload=report_payload,
-        validation_rows=validation_rows,
-        test_rows=test_rows,
+        validation_rows=best_run["validation_rows"],
+        test_rows=best_run["test_rows"],
     )
     print("Supervised model training completed.")
-    print(f"Train samples: {dataset.split_summary['train_samples']}")
-    print(f"Validation samples: {dataset.split_summary['validation_samples']}")
-    print(f"Test samples: {dataset.split_summary['test_samples']}")
+    print(f"Selected article-count cap: {best_run['article_count']}")
+    print(f"Train samples: {best_run['dataset'].split_summary['train_samples']}")
+    print(f"Validation samples: {best_run['dataset'].split_summary['validation_samples']}")
+    print(f"Test samples: {best_run['dataset'].split_summary['test_samples']}")
     print(f"Validation Top-1 accuracy: {report_payload['validation_metrics']['top1_accuracy']:.3f}")
     print(f"Validation Top-3 accuracy: {report_payload['validation_metrics']['top3_accuracy']:.3f}")
     print(f"Test Top-1 accuracy: {report_payload['test_metrics']['top1_accuracy']:.3f}")
     print(f"Test Top-3 accuracy: {report_payload['test_metrics']['top3_accuracy']:.3f}")
     print(f"Saved model to: {Path(args.model_output).resolve()}")
     print(f"Report file: {Path(args.report).resolve()}")
+
+
+def _parse_article_count_grid(raw_value: str | None) -> list[int]:
+    if not raw_value:
+        return []
+    values: list[int] = []
+    for item in raw_value.split(","):
+        normalized = item.strip()
+        if not normalized:
+            continue
+        values.append(int(normalized))
+    return sorted(set(value for value in values if value > 0))
