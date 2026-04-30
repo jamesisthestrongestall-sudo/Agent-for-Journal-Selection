@@ -48,6 +48,32 @@ FEATURE_NAMES = (
     "publication_count_log",
 )
 PUBLICATION_COUNT_CAP = 120
+NON_RESEARCH_ARTICLE_TITLES = {
+    "about the authors",
+    "acknowledgements",
+    "back matter",
+    "book review",
+    "book reviews",
+    "contents",
+    "correction",
+    "editorial",
+    "editorial board",
+    "erratum",
+    "front matter",
+    "index",
+    "introduction",
+    "issue information",
+    "masthead",
+    "notes on contributors",
+    "table of contents",
+}
+NON_RESEARCH_ARTICLE_PREFIXES = (
+    "book review:",
+    "correction to:",
+    "corrigendum",
+    "erratum to:",
+    "issue information",
+)
 
 
 def tfidf_tokenizer(text: str) -> list[str]:
@@ -171,6 +197,7 @@ class SupervisedJournalDatasetBuilder:
     def __init__(self, *, max_articles_per_journal: int = 8, random_seed: int = 42) -> None:
         self.max_articles_per_journal = max_articles_per_journal
         self.random_seed = random_seed
+        self.skipped_non_research_articles = 0
 
     def build(self, journals: list[JournalProfile]) -> SupervisedDataset:
         candidate_profiles: list[CandidateJournalProfile] = []
@@ -179,6 +206,7 @@ class SupervisedJournalDatasetBuilder:
         test_samples: list[SupervisedArticleSample] = []
         journals_with_samples = 0
         journals_without_samples = 0
+        self.skipped_non_research_articles = 0
 
         for journal in journals:
             selected_samples, journal_train, journal_validation, journal_test = self._journal_split(journal)
@@ -202,6 +230,7 @@ class SupervisedJournalDatasetBuilder:
             "test_samples": len(test_samples),
             "validation_journal_count": len({sample.journal_id for sample in validation_samples}),
             "test_journal_count": len({sample.journal_id for sample in test_samples}),
+            "skipped_non_research_articles": self.skipped_non_research_articles,
         }
         return SupervisedDataset(
             candidate_profiles=candidate_profiles,
@@ -232,6 +261,9 @@ class SupervisedJournalDatasetBuilder:
             keywords = tuple(keyword for keyword in article.keywords if normalize_space(keyword))
             if not title and not abstract and not keywords:
                 continue
+            if self._is_non_research_article(title=title, abstract=abstract, keywords=keywords):
+                self.skipped_non_research_articles += 1
+                continue
             article_key = normalize_title_key(title) or f"article-{index}"
             usable.append(
                 SupervisedArticleSample(
@@ -247,6 +279,18 @@ class SupervisedJournalDatasetBuilder:
                 )
             )
         return usable
+
+    def _is_non_research_article(self, *, title: str, abstract: str, keywords: tuple[str, ...]) -> bool:
+        normalized_title = normalize_space(title).lower().strip(" .:-")
+        if not normalized_title:
+            return False
+        if normalized_title in NON_RESEARCH_ARTICLE_TITLES:
+            return True
+        if any(normalized_title.startswith(prefix) for prefix in NON_RESEARCH_ARTICLE_PREFIXES):
+            return True
+        if len(normalized_title.split()) <= 2 and not abstract and len(keywords) <= 1:
+            return normalized_title in {"editorial", "introduction", "preface", "foreword"}
+        return False
 
     def _journal_split(
         self,
@@ -459,7 +503,14 @@ class SupervisedJournalDatasetBuilder:
 
 
 class SupervisedJournalRanker:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        regularization_values: list[float] | None = None,
+        negative_samples_per_query: int | None = None,
+        hard_negative_samples_per_query: int = 0,
+        random_seed: int = 42,
+    ) -> None:
         self.encoder: HybridTextEncoder | None = None
         self.model: Pipeline | None = None
         self.candidate_profiles: list[CandidateJournalProfile] = []
@@ -472,6 +523,10 @@ class SupervisedJournalRanker:
         self.split_summary: dict[str, Any] = {}
         self.validation_metrics: RankingMetrics | None = None
         self.test_metrics: RankingMetrics | None = None
+        self.regularization_values = regularization_values or [0.5, 1.0, 2.0, 4.0, 8.0]
+        self.negative_samples_per_query = negative_samples_per_query
+        self.hard_negative_samples_per_query = hard_negative_samples_per_query
+        self.random_seed = random_seed
 
     def fit(
         self,
@@ -498,6 +553,8 @@ class SupervisedJournalRanker:
                 scope_block=scope_block,
                 recent_block=recent_block,
                 title_block=title_block,
+                negative_samples_per_query=self.negative_samples_per_query,
+                hard_negative_samples_per_query=self.hard_negative_samples_per_query,
             )
             model = self._fit_model(train_x, train_y, config)
             validation_metrics, validation_rows = self._evaluate(
@@ -538,6 +595,8 @@ class SupervisedJournalRanker:
             scope_block=self.scope_block,
             recent_block=self.recent_block,
             title_block=self.title_block,
+            negative_samples_per_query=self.negative_samples_per_query,
+            hard_negative_samples_per_query=self.hard_negative_samples_per_query,
         )
         self.model = self._fit_model(train_x, train_y, self.best_config)
         self.test_metrics, test_rows = self._evaluate(
@@ -569,6 +628,9 @@ class SupervisedJournalRanker:
             "feature_names": self.feature_names,
             "best_config": self.best_config,
             "split_summary": self.split_summary,
+            "regularization_values": self.regularization_values,
+            "negative_samples_per_query": self.negative_samples_per_query,
+            "hard_negative_samples_per_query": self.hard_negative_samples_per_query,
             "validation_metrics": asdict(self.validation_metrics) if self.validation_metrics else None,
             "test_metrics": asdict(self.test_metrics) if self.test_metrics else None,
         }
@@ -587,6 +649,9 @@ class SupervisedJournalRanker:
         ranker.feature_names = tuple(payload.get("feature_names", FEATURE_NAMES))
         ranker.best_config = payload.get("best_config", {})
         ranker.split_summary = payload.get("split_summary", {})
+        ranker.regularization_values = list(payload.get("regularization_values") or ranker.regularization_values)
+        ranker.negative_samples_per_query = payload.get("negative_samples_per_query")
+        ranker.hard_negative_samples_per_query = int(payload.get("hard_negative_samples_per_query") or 0)
         if payload.get("validation_metrics"):
             ranker.validation_metrics = RankingMetrics(**payload["validation_metrics"])
         if payload.get("test_metrics"):
@@ -743,7 +808,7 @@ class SupervisedJournalRanker:
         return model
 
     def _candidate_configs(self) -> list[dict[str, Any]]:
-        return [{"c": value} for value in (0.5, 1.0, 2.0, 4.0, 8.0)]
+        return [{"c": value} for value in self.regularization_values]
 
     def _pairwise_dataset(
         self,
@@ -754,6 +819,8 @@ class SupervisedJournalRanker:
         scope_block: EncodedTextBlock,
         recent_block: EncodedTextBlock,
         title_block: EncodedTextBlock,
+        negative_samples_per_query: int | None = None,
+        hard_negative_samples_per_query: int = 0,
     ) -> tuple[np.ndarray, np.ndarray]:
         rows: list[list[float]] = []
         labels: list[int] = []
@@ -779,7 +846,21 @@ class SupervisedJournalRanker:
                     title_recent_scores[positive_index] = encoder.similarity(manuscript_title_block, excluded_block)[0][0]
 
             sample_terms = sample.keyword_pool()
-            for index, profile in enumerate(candidate_profiles):
+            candidate_indices = self._training_candidate_indices(
+                sample,
+                candidate_profiles=candidate_profiles,
+                candidate_index=candidate_index,
+                negative_samples_per_query=negative_samples_per_query,
+                hard_negative_samples_per_query=hard_negative_samples_per_query,
+                scope_scores=scope_scores,
+                recent_scores=recent_scores,
+                title_scope_scores=title_scope_scores,
+                title_recent_scores=title_recent_scores,
+                title_title_scores=title_title_scores,
+                sample_terms=sample_terms,
+            )
+            for index in candidate_indices:
+                profile = candidate_profiles[index]
                 scaled_publication_count = self._scaled_publication_count(profile.publication_count)
                 publication_ratio = scaled_publication_count / max_publication_count if max_publication_count else 0.0
                 rows.append(
@@ -797,6 +878,56 @@ class SupervisedJournalRanker:
                 )
                 labels.append(1 if profile.journal_id == sample.journal_id else 0)
         return np.asarray(rows, dtype=float), np.asarray(labels, dtype=int)
+
+    def _training_candidate_indices(
+        self,
+        sample: SupervisedArticleSample,
+        *,
+        candidate_profiles: list[CandidateJournalProfile],
+        candidate_index: dict[str, int],
+        negative_samples_per_query: int | None,
+        hard_negative_samples_per_query: int,
+        scope_scores: np.ndarray,
+        recent_scores: np.ndarray,
+        title_scope_scores: np.ndarray,
+        title_recent_scores: np.ndarray,
+        title_title_scores: np.ndarray,
+        sample_terms: list[str],
+    ) -> list[int]:
+        positive_index = candidate_index.get(sample.journal_id)
+        all_indices = list(range(len(candidate_profiles)))
+        if negative_samples_per_query is None or negative_samples_per_query <= 0:
+            return all_indices
+        negative_indices = [index for index in all_indices if index != positive_index]
+        hard_count = min(max(hard_negative_samples_per_query, 0), negative_samples_per_query, len(negative_indices))
+        selected_hard: list[int] = []
+        if hard_count:
+            hard_scores = []
+            for index in negative_indices:
+                profile = candidate_profiles[index]
+                hard_score = (
+                    (0.30 * float(scope_scores[index]))
+                    + (0.30 * float(recent_scores[index]))
+                    + (0.14 * float(title_scope_scores[index]))
+                    + (0.14 * float(title_recent_scores[index]))
+                    + (0.06 * float(title_title_scores[index]))
+                    + (0.03 * keyword_overlap(sample.keywords, list(profile.keyword_pool)))
+                    + (0.03 * keyword_overlap(sample_terms, list(profile.keyword_pool)))
+                )
+                hard_scores.append((hard_score, index))
+            selected_hard = [
+                index
+                for _, index in sorted(hard_scores, key=lambda item: (-item[0], candidate_profiles[item[1]].title.lower()))[:hard_count]
+            ]
+        hard_lookup = set(selected_hard)
+        random_pool = [index for index in negative_indices if index not in hard_lookup]
+        random_count = min(negative_samples_per_query - len(selected_hard), len(random_pool))
+        rng = random.Random(f"{self.random_seed}:{sample.sample_id}:{sample.article_id}")
+        selected_random = rng.sample(random_pool, k=random_count) if random_count > 0 else []
+        selected_negatives = [*selected_hard, *selected_random]
+        if positive_index is None:
+            return sorted(selected_negatives)
+        return [positive_index, *sorted(selected_negatives)]
 
     def _rank_sample(
         self,

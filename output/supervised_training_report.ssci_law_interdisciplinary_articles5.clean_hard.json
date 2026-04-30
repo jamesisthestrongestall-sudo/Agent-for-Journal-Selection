@@ -1,0 +1,54 @@
+{
+  "target_metric": "top3_accuracy",
+  "best_config": {
+    "c": 0.5
+  },
+  "feature_names": [
+    "scope_similarity",
+    "recent_article_similarity",
+    "title_scope_similarity",
+    "title_recent_similarity",
+    "journal_title_similarity",
+    "keyword_overlap",
+    "term_overlap",
+    "publication_count_ratio",
+    "publication_count_log"
+  ],
+  "split_summary": {
+    "candidate_journal_count": 644,
+    "journals_with_samples": 643,
+    "journals_without_samples": 1,
+    "max_articles_per_journal": 5,
+    "selection_strategy": "representative_mmr_fixed_holdouts",
+    "train_samples": 1836,
+    "validation_samples": 640,
+    "test_samples": 643,
+    "validation_journal_count": 640,
+    "test_journal_count": 643,
+    "skipped_non_research_articles": 88
+  },
+  "validation_metrics": {
+    "sample_count": 640,
+    "top1_accuracy": 0.8734375,
+    "top3_accuracy": 0.9546875,
+    "top5_accuracy": 0.9796875,
+    "mrr": 0.9195696227418072
+  },
+  "test_metrics": {
+    "sample_count": 643,
+    "top1_accuracy": 0.8569206842923794,
+    "top3_accuracy": 0.9502332814930016,
+    "top5_accuracy": 0.9751166407465007,
+    "mrr": 0.9082232491540624
+  },
+  "article_count_sweep": [
+    {
+      "article_count": 5,
+      "validation_metric": 0.9546875,
+      "validation_top1": 0.8734375,
+      "validation_top3": 0.9546875,
+      "test_top1": 0.8569206842923794,
+      "test_top3": 0.9502332814930016
+    }
+  ]
+}

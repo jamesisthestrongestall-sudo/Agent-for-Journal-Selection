@@ -15,6 +15,25 @@ from journal_agent.models.schemas import JournalProfile
 from journal_agent.utils.text_processing import extract_candidate_terms, normalize_space, normalize_title_key, parse_keyword_string
 
 
+LAW_EXPANDED_FOCUS_CATEGORY_TERMS = [
+    "law",
+    "criminology & penology",
+    "political science",
+    "public administration",
+    "international relations",
+    "social sciences, interdisciplinary",
+    "area studies",
+    "sociology",
+    "ethics",
+    "communication",
+    "business",
+    "business, finance",
+    "economics",
+    "environmental studies",
+    "urban studies",
+]
+
+
 def _apply_field_mapping(raw_record: dict[str, Any], field_mapping: dict[str, str]) -> dict[str, Any]:
     mapped: dict[str, Any] = {}
     for target_field, source_field in field_mapping.items():
@@ -228,6 +247,36 @@ class SsciCsvLookupSource(CsvSource):
             "editorial_preferences": ["theoretical_innovation", "regional_china"],
             "keywords": ["history", "institutions", "archives", "historical analysis"],
         },
+        "economics": {
+            "methodology_preferences": ["empirical", "quantitative", "comparative"],
+            "editorial_preferences": ["commercial_finance", "legislation_policy"],
+            "keywords": ["economics", "markets", "institutions", "regulation"],
+        },
+        "ethics": {
+            "methodology_preferences": ["qualitative", "doctrinal", "interdisciplinary"],
+            "editorial_preferences": ["theoretical_innovation", "international_rule_of_law"],
+            "keywords": ["ethics", "norms", "governance", "human rights"],
+        },
+        "environmental studies": {
+            "methodology_preferences": ["interdisciplinary", "empirical", "comparative"],
+            "editorial_preferences": ["legislation_policy", "international_rule_of_law"],
+            "keywords": ["environment", "sustainability", "governance", "regulation"],
+        },
+        "urban studies": {
+            "methodology_preferences": ["empirical", "qualitative", "interdisciplinary"],
+            "editorial_preferences": ["legislation_policy", "regional_china"],
+            "keywords": ["cities", "planning", "governance", "policy"],
+        },
+        "area studies": {
+            "methodology_preferences": ["qualitative", "comparative", "historical"],
+            "editorial_preferences": ["regional_china", "international_rule_of_law"],
+            "keywords": ["regional studies", "institutions", "governance", "comparative politics"],
+        },
+        "social sciences, interdisciplinary": {
+            "methodology_preferences": ["interdisciplinary", "empirical", "qualitative"],
+            "editorial_preferences": ["theoretical_innovation", "legislation_policy"],
+            "keywords": ["interdisciplinary", "social sciences", "governance", "institutions"],
+        },
     }
 
     def fetch(self) -> list[JournalProfile]:
@@ -339,6 +388,8 @@ class SsciCsvEnrichedSource(SsciCsvLookupSource):
             recent_article_count=int(self.config.get("recent_article_count", 15)),
             request_delay_sec=float(self.config.get("request_delay_sec", 0.0)),
             cache_dir=(self.base_dir / self.config["cache_dir"]).resolve() if self.config.get("cache_dir") else None,
+            crawl_aims_scope=bool(self.config.get("crawl_aims_scope", True)),
+            crawl_publication_count=bool(self.config.get("crawl_publication_count", True)),
         )
         enriched_profiles: list[JournalProfile] = []
         for profile in base_profiles:
@@ -422,7 +473,7 @@ class DatasetBuilder:
             "path": path.name,
         }
         if discipline == "law":
-            config["law_only"] = True
+            config["focus_category_terms"] = LAW_EXPANDED_FOCUS_CATEGORY_TERMS
             config["focus_label"] = "law"
         source = SsciCsvLookupSource(config, path.parent)
         return source.fetch()

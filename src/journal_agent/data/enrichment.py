@@ -515,10 +515,14 @@ class JournalProfileEnricher:
         recent_article_count: int = 15,
         request_delay_sec: float = 0.0,
         cache_dir: str | Path | None = None,
+        crawl_aims_scope: bool = True,
+        crawl_publication_count: bool = True,
     ) -> None:
         self.recent_article_count = recent_article_count
         self.request_delay_sec = request_delay_sec
         self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.crawl_aims_scope = crawl_aims_scope
+        self.crawl_publication_count = crawl_publication_count
         self.openalex = OpenAlexClient()
         self.site_crawler = JournalSiteCrawler()
 
@@ -529,10 +533,17 @@ class JournalProfileEnricher:
 
         source = self.openalex.find_source(title=profile.title, issn=profile.issn, eissn=profile.eissn)
         homepage_url = normalize_space((source or {}).get("homepage_url", "")) or profile.website
-        aims_and_scope, aims_url = self.site_crawler.fetch_aims_and_scope(homepage_url)
-        site_publication_count, site_publication_count_year, publication_count_url = self.site_crawler.fetch_annual_publication_count(
-            homepage_url
-        )
+        aims_and_scope = None
+        aims_url = None
+        if self.crawl_aims_scope:
+            aims_and_scope, aims_url = self.site_crawler.fetch_aims_and_scope(homepage_url)
+        site_publication_count = None
+        site_publication_count_year = None
+        publication_count_url = None
+        if self.crawl_publication_count:
+            site_publication_count, site_publication_count_year, publication_count_url = self.site_crawler.fetch_annual_publication_count(
+                homepage_url
+            )
         openalex_publication_count = None
         openalex_publication_count_year = None
         recent_articles: list[JournalArticleExample] = []
@@ -541,9 +552,10 @@ class JournalProfileEnricher:
                 source_id=source["id"],
                 limit=self.recent_article_count,
             )
-            openalex_publication_count, openalex_publication_count_year = self.openalex.fetch_annual_publication_count(
-                source_id=source["id"]
-            )
+            if self.crawl_publication_count:
+                openalex_publication_count, openalex_publication_count_year = self.openalex.fetch_annual_publication_count(
+                    source_id=source["id"]
+                )
         annual_publication_count, annual_publication_count_year, annual_publication_count_source = _choose_publication_count(
             site_count=site_publication_count,
             site_year=site_publication_count_year,

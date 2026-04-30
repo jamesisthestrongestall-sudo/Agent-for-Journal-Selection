@@ -8,22 +8,27 @@ Install first:
 pip install -e .
 ```
 
-1. Build the SSCI law-journal dataset from the law list.
-   This step enriches each journal with `Aims & Scope`, recent articles, and a one-year publication count from the journal site or OpenAlex.
+1. Build the focused SSCI law-interdisciplinary dataset.
+   This step collects SSCI law and closely law-adjacent social-science journals, then enriches each journal with the five latest OpenAlex article records.
 
 ```bash
 python -m journal_agent crawl ^
-  --manifest data/source_manifest.ssci_law_list.json ^
-  --output data/legal_journals.law_list.full.json
+  --manifest data/source_manifest.ssci_law_interdisciplinary_articles5.json ^
+  --output data/legal_journals.ssci_law_interdisciplinary_articles5.json
 ```
 
 2. Train the supervised model with a real `train / validation / test` split.
+   For this larger pool, sampled hard negatives keep training practical and improve close-call ranking accuracy.
 
 ```bash
 python -m journal_agent train-supervised ^
-  --dataset data/legal_journals.law_list.full.json ^
-  --model-output output/supervised_journal_model.pkl ^
-  --report output/supervised_training_report.json
+  --dataset data/legal_journals.ssci_law_interdisciplinary_articles5.json ^
+  --max-articles-per-journal 5 ^
+  --regularization-grid 0.5 ^
+  --negative-samples-per-query 80 ^
+  --hard-negative-samples-per-query 40 ^
+  --model-output output/supervised_journal_model.ssci_law_interdisciplinary_articles5.clean_hard.pkl ^
+  --report output/supervised_training_report.ssci_law_interdisciplinary_articles5.clean_hard.json
 ```
 
 3. Run recommendation with the trained model.
@@ -31,8 +36,8 @@ python -m journal_agent train-supervised ^
 ```bash
 python -m journal_agent recommend ^
   --manuscript data/sample_manuscript.txt ^
-  --dataset data/legal_journals.law_list.full.json ^
-  --model output/supervised_journal_model.pkl ^
+  --dataset data/legal_journals.ssci_law_interdisciplinary_articles5.json ^
+  --model output/supervised_journal_model.ssci_law_interdisciplinary_articles5.clean_hard.pkl ^
   --output output/recommendations.csv ^
   --top-k 10
 ```
@@ -44,16 +49,17 @@ python -m journal_agent recommend ^
   --title "Platform governance and algorithmic due process" ^
   --abstract "This article studies due process obligations in platform governance..." ^
   --keywords "platform governance; algorithm; due process; digital regulation" ^
-  --dataset data/legal_journals.law_list.full.json ^
-  --model output/supervised_journal_model.pkl ^
+  --dataset data/legal_journals.ssci_law_interdisciplinary_articles5.json ^
+  --model output/supervised_journal_model.ssci_law_interdisciplinary_articles5.clean_hard.pkl ^
   --output output/recommendations.csv
 ```
 
 ## Current Model
 
-- Candidate pool: `156` SSCI law journals
-- Journal portrait factors: `Aims & Scope`, recent `title / abstract / keywords`, one-year publication count
-- Learning setup: supervised ranking with real `train / validation / test` split
+- Candidate pool: `644` SSCI law and law-adjacent interdisciplinary social-science journals
+- Journal portrait factors: recent `title / abstract / keywords`, SSCI category metadata, and generated scope text
+- Learning setup: supervised ranking with non-research article filtering, sampled negatives, hard negatives, and real `train / validation / test` split
+- Latest test accuracy: Top-1 `85.7%`, Top-3 `95.0%`, Top-5 `97.5%`, MRR `0.908`
 - Manuscript input: `docx`, `txt`, `md`, or direct title / abstract / keywords
 
 ## Other Commands
@@ -68,7 +74,7 @@ python -m journal_agent evaluate ^
   --details-output output/evaluation_details.csv
 ```
 
-Generic SSCI crawl:
+Expanded SSCI crawl:
 
 ```bash
 python -m journal_agent crawl ^
@@ -76,7 +82,7 @@ python -m journal_agent crawl ^
   --output data/legal_journals.collected.json
 ```
 
-Quick metadata-only build:
+Quick metadata-only build for the expanded law-adjacent SSCI pool:
 
 ```bash
 python -m journal_agent crawl ^
@@ -86,6 +92,6 @@ python -m journal_agent crawl ^
 
 ## Notes
 
-- `data/source_manifest.ssci_law_list.json` is the default law-list manifest.
+- `data/source_manifest.ssci_law_list.json` is the default manifest for the expanded law recommendation pool.
 - Recommendation language follows manuscript language.
 - `legal_journals.seed.json` is only for demo/testing.

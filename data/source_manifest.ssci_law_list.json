@@ -13,6 +13,35 @@
         "indexing": ["SSCI"],
         "source_tags": ["ssci_xlsx_list", "ssci_law_list", "ssci_local_csv"]
       }
+    },
+    {
+      "name": "ssci_interdisciplinary_law_adjacent",
+      "type": "ssci_csv_enriched",
+      "path": "Social Sciences Citation Index (SSCI).csv",
+      "focus_category_terms": [
+        "criminology & penology",
+        "political science",
+        "public administration",
+        "international relations",
+        "social sciences, interdisciplinary",
+        "area studies",
+        "sociology",
+        "ethics",
+        "communication",
+        "business",
+        "business, finance",
+        "economics",
+        "environmental studies",
+        "urban studies"
+      ],
+      "focus_label": "law",
+      "recent_article_count": 15,
+      "request_delay_sec": 0.0,
+      "cache_dir": "cache/ssci_law_list_enrichment_v3",
+      "static_fields": {
+        "indexing": ["SSCI"],
+        "source_tags": ["ssci_uploaded", "ssci_interdisciplinary", "ssci_local_csv"]
+      }
     }
   ]
 }

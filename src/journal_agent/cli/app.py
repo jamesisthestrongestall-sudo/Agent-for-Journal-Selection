@@ -111,6 +111,21 @@ def build_parser() -> argparse.ArgumentParser:
     supervised.add_argument("--max-articles-per-journal", type=int, default=8, help="Maximum representative recent articles per journal to use as labeled samples.")
     supervised.add_argument("--article-count-grid", help="Optional comma-separated sweep, for example: 5,6,7,8")
     supervised.add_argument(
+        "--regularization-grid",
+        help="Optional comma-separated logistic-regression C sweep, for example: 1,2,4. Default: 0.5,1,2,4,8",
+    )
+    supervised.add_argument(
+        "--negative-samples-per-query",
+        type=int,
+        help="Optional number of negative journals to sample per training article. Use this for large candidate pools.",
+    )
+    supervised.add_argument(
+        "--hard-negative-samples-per-query",
+        type=int,
+        default=0,
+        help="Optional number of sampled negatives chosen from the most text-similar wrong journals.",
+    )
+    supervised.add_argument(
         "--target-metric",
         default="top3_accuracy",
         choices=["top1_accuracy", "top3_accuracy", "top5_accuracy", "mrr"],
@@ -242,6 +257,7 @@ def run_train_supervised(args: argparse.Namespace) -> None:
     repository = JournalRepository()
     journals = repository.load_journals(args.dataset, discipline=args.discipline)
     article_count_grid = _parse_article_count_grid(args.article_count_grid)
+    regularization_grid = _parse_float_grid(args.regularization_grid)
     candidate_counts = article_count_grid or [args.max_articles_per_journal]
     best_run: dict[str, object] | None = None
     sweep_rows: list[dict[str, object]] = []
@@ -252,7 +268,12 @@ def run_train_supervised(args: argparse.Namespace) -> None:
             random_seed=args.random_seed,
         )
         dataset = builder.build(journals)
-        ranker = SupervisedJournalRanker()
+        ranker = SupervisedJournalRanker(
+            regularization_values=regularization_grid or None,
+            negative_samples_per_query=args.negative_samples_per_query,
+            hard_negative_samples_per_query=args.hard_negative_samples_per_query,
+            random_seed=args.random_seed,
+        )
         report_payload, validation_rows, test_rows = ranker.fit(dataset, target_metric=args.target_metric)
         validation_metric = float(report_payload["validation_metrics"][args.target_metric])
         sweep_rows.append(
@@ -311,4 +332,16 @@ def _parse_article_count_grid(raw_value: str | None) -> list[int]:
         if not normalized:
             continue
         values.append(int(normalized))
+    return sorted(set(value for value in values if value > 0))
+
+
+def _parse_float_grid(raw_value: str | None) -> list[float]:
+    if not raw_value:
+        return []
+    values: list[float] = []
+    for item in raw_value.split(","):
+        normalized = item.strip()
+        if not normalized:
+            continue
+        values.append(float(normalized))
     return sorted(set(value for value in values if value > 0))
