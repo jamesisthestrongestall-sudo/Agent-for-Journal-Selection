@@ -1,5 +1,9 @@
 # Legal Journal Agent
 
+Legal Journal Agent is an AI-assisted journal recommendation pipeline for legal manuscripts. It builds supervised ranking models from SSCI-indexed law and law-adjacent social-science journals, crawls recent article metadata from OpenAlex, and recommends venues by matching a manuscript's title, abstract, keywords, methodology, and subfield signals against journal profiles.
+
+The current workflow expands beyond a narrow law-only list into an interdisciplinary SSCI pool covering law, criminology, political science, public administration, international relations, ethics, social issues, and interdisciplinary social sciences. The best bundled model uses cleaned article samples and hard-negative training to improve close-call ranking accuracy across the expanded candidate pool.
+
 ## Recommended Workflow
 
 Install first:
