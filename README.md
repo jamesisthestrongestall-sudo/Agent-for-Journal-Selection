@@ -63,6 +63,7 @@ python -m journal_agent recommend ^
 - Candidate pool: `644` SSCI law and law-adjacent interdisciplinary social-science journals
 - Journal portrait factors: recent `title / abstract / keywords`, SSCI category metadata, and generated scope text
 - Learning setup: supervised ranking with non-research article filtering, sampled negatives, hard negatives, and real `train / validation / test` split
+- Recommendation policy: when using the interdisciplinary dataset, the recommender ensures at least one interdisciplinary journal appears in the top 5 if an eligible candidate exists
 - Latest test accuracy: Top-1 `85.7%`, Top-3 `95.0%`, Top-5 `97.5%`, MRR `0.908`
 - Manuscript input: `docx`, `txt`, `md`, or direct title / abstract / keywords
 

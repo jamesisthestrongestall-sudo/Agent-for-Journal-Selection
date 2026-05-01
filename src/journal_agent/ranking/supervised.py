@@ -48,6 +48,15 @@ FEATURE_NAMES = (
     "publication_count_log",
 )
 PUBLICATION_COUNT_CAP = 120
+INTERDISCIPLINARY_CATEGORY_TERMS = {
+    "criminology & penology",
+    "ethics",
+    "international relations",
+    "political science",
+    "public administration",
+    "social issues",
+    "social sciences, interdisciplinary",
+}
 NON_RESEARCH_ARTICLE_TITLES = {
     "about the authors",
     "acknowledgements",
@@ -699,6 +708,11 @@ class SupervisedJournalRanker:
             allowed_ids=allowed_ids,
             manuscript_subfields=manuscript_subfields,
         )
+        predictions = self._ensure_interdisciplinary_top5(
+            predictions,
+            candidate_map=candidate_map,
+            top_k=top_k,
+        )
 
         recommendations: list[RecommendationResult] = []
         for prediction in predictions[:top_k]:
@@ -718,6 +732,8 @@ class SupervisedJournalRanker:
                 rationale_parts.append("observed annual publication volume is high")
             if prediction["generic_penalty"] < 1.0 and prediction["generic_penalty_reason"]:
                 rationale_parts.append(prediction["generic_penalty_reason"])
+            if prediction.get("interdisciplinary_promoted"):
+                rationale_parts.append("included to ensure interdisciplinary coverage in top-5")
             rationale = (
                 "; ".join(rationale_parts)
                 if rationale_parts
@@ -749,6 +765,50 @@ class SupervisedJournalRanker:
                 )
             )
         return recommendations
+
+    def _ensure_interdisciplinary_top5(
+        self,
+        predictions: list[dict[str, Any]],
+        *,
+        candidate_map: dict[str, JournalProfile],
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        if top_k < 5 or len(predictions) <= 5:
+            return predictions
+        if any(self._is_interdisciplinary_journal(candidate_map[item["journal_id"]]) for item in predictions[:5]):
+            return predictions
+
+        best_interdisciplinary = next(
+            (
+                item
+                for item in predictions[5:]
+                if self._is_interdisciplinary_journal(candidate_map[item["journal_id"]])
+            ),
+            None,
+        )
+        if best_interdisciplinary is None:
+            return predictions
+
+        promoted = dict(best_interdisciplinary)
+        promoted["interdisciplinary_promoted"] = True
+        selected = [*predictions[:4], promoted]
+        selected_ids = {item["journal_id"] for item in selected}
+        remaining = [item for item in predictions[4:] if item["journal_id"] not in selected_ids]
+        return [*selected, *remaining]
+
+    def _is_interdisciplinary_journal(self, journal: JournalProfile) -> bool:
+        categories = {
+            normalize_space(category).lower()
+            for category in journal.subdisciplines
+            if normalize_space(category)
+        }
+        if "social sciences, interdisciplinary" in categories:
+            return True
+        if "law" in categories and len(categories - {"law"}) > 0:
+            return True
+        if "law" not in categories and categories.intersection(INTERDISCIPLINARY_CATEGORY_TERMS):
+            return True
+        return False
 
     def save_report(
         self,
