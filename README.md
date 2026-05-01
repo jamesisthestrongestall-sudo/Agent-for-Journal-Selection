@@ -65,6 +65,7 @@ python -m journal_agent recommend ^
 - Learning setup: supervised ranking with non-research article filtering, sampled negatives, hard negatives, and real `train / validation / test` split
 - Recommendation policy: when using the interdisciplinary dataset, the recommender ensures at least one interdisciplinary journal appears in the top 5 if an eligible candidate exists
 - Recommendation output labels each journal as `interdisciplinary` or `single-field` and exports `subdisciplines` plus `is_interdisciplinary` in the CSV
+- Venue-fit safeguards penalize Asia-Pacific journals when the manuscript lacks regional/comparative focus, and peace/conflict journals when the manuscript lacks peace/conflict/security focus
 - Latest test accuracy: Top-1 `85.7%`, Top-3 `95.0%`, Top-5 `97.5%`, MRR `0.908`
 - Manuscript input: `docx`, `txt`, `md`, or direct title / abstract / keywords
 

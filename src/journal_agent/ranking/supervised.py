@@ -53,6 +53,52 @@ FEATURE_NAMES = (
     "publication_count_log",
 )
 PUBLICATION_COUNT_CAP = 120
+ASIA_PACIFIC_VENUE_TERMS = {
+    "asia pacific",
+    "asian",
+    "china",
+    "chinese",
+    "hong kong",
+    "japan",
+    "korea",
+    "pacific",
+}
+ASIA_PACIFIC_QUERY_TERMS = {
+    "asia",
+    "asia-pacific",
+    "asian",
+    "australia",
+    "china",
+    "chinese",
+    "comparative",
+    "cross-border",
+    "hong kong",
+    "international",
+    "japan",
+    "korea",
+    "new zealand",
+    "pacific",
+    "regional",
+    "transnational",
+}
+PEACE_CONFLICT_VENUE_TERMS = {
+    "conflict",
+    "peace",
+    "peacebuilding",
+    "security",
+    "violence",
+    "war",
+}
+PEACE_CONFLICT_QUERY_TERMS = {
+    "armed conflict",
+    "conflict",
+    "peace",
+    "peacebuilding",
+    "security",
+    "terrorism",
+    "violence",
+    "war",
+}
 NON_RESEARCH_ARTICLE_TITLES = {
     "about the authors",
     "acknowledgements",
@@ -728,6 +774,8 @@ class SupervisedJournalRanker:
                 rationale_parts.append("observed annual publication volume is high")
             if prediction["generic_penalty"] < 1.0 and prediction["generic_penalty_reason"]:
                 rationale_parts.append(prediction["generic_penalty_reason"])
+            if prediction.get("topical_penalty", 1.0) < 1.0 and prediction.get("topical_penalty_reason"):
+                rationale_parts.append(prediction["topical_penalty_reason"])
             if prediction.get("interdisciplinary_promoted"):
                 rationale_parts.append("included to ensure interdisciplinary coverage in top-5")
             rationale = (
@@ -750,8 +798,8 @@ class SupervisedJournalRanker:
                     feasibility=publication_fit,
                     overall_score=prediction["rerank_score"],
                     match_probability=prediction["rerank_score"],
-                    overexposure_penalty=prediction["generic_penalty"],
-                    overexposure_penalty_reason=prediction["generic_penalty_reason"],
+                    overexposure_penalty=prediction["generic_penalty"] * prediction.get("topical_penalty", 1.0),
+                    overexposure_penalty_reason=self._combined_penalty_reason(prediction),
                     match_level=self._match_level(prediction["rerank_score"]),
                     rationale=rationale,
                     manuscript_primary_subfield=bucket_label(manuscript_subfields.primary) or None,
@@ -761,6 +809,13 @@ class SupervisedJournalRanker:
                 )
             )
         return recommendations
+
+    def _combined_penalty_reason(self, prediction: dict[str, Any]) -> str | None:
+        reasons = [
+            prediction.get("generic_penalty_reason"),
+            prediction.get("topical_penalty_reason"),
+        ]
+        return "; ".join(reason for reason in reasons if reason) or None
 
     def _ensure_interdisciplinary_top5(
         self,
@@ -1043,6 +1098,7 @@ class SupervisedJournalRanker:
             )
             if generic_penalty < 1.0:
                 bucket_fit = clamp(bucket_fit * generic_penalty)
+            topical_penalty, topical_reason = self._topical_scope_penalty(sample, profile)
             overlap = any(bucket in journal_subfields.focus for bucket in manuscript_subfields.focus)
             same_primary = bool(
                 manuscript_subfields.primary
@@ -1057,6 +1113,8 @@ class SupervisedJournalRanker:
                 rerank_score *= 0.84 if manuscript_subfields.primary == TECHNOLOGY_BUCKET else 0.84
             if generic_penalty < 1.0:
                 rerank_score *= generic_penalty
+            if topical_penalty < 1.0:
+                rerank_score *= topical_penalty
             rerank_score = clamp(rerank_score)
             feature_map = dict(zip(self.feature_names, feature_row.tolist(), strict=False))
             feature_map.update(
@@ -1070,6 +1128,8 @@ class SupervisedJournalRanker:
                     "journal_primary_subfield": profile.primary_subfield,
                     "generic_penalty": float(generic_penalty),
                     "generic_penalty_reason": generic_reason,
+                    "topical_penalty": float(topical_penalty),
+                    "topical_penalty_reason": topical_reason,
                 }
             )
             predictions.append(feature_map)
@@ -1078,10 +1138,38 @@ class SupervisedJournalRanker:
                 -item["rerank_score"],
                 -item["bucket_fit"],
                 -item["probability"],
+                -item.get("topical_penalty", 1.0),
                 item["journal_title"].lower(),
             )
         )
         return predictions
+
+    def _topical_scope_penalty(
+        self,
+        sample: SupervisedArticleSample,
+        profile: CandidateJournalProfile,
+    ) -> tuple[float, str | None]:
+        query_text = normalize_space(sample.query_text()).lower()
+        if self._is_asia_pacific_venue(profile) and not self._has_any_term(query_text, ASIA_PACIFIC_QUERY_TERMS):
+            return 0.15, "Asia-Pacific venue penalty: manuscript lacks regional/comparative focus"
+        if self._is_peace_conflict_venue(profile) and not self._has_any_term(query_text, PEACE_CONFLICT_QUERY_TERMS):
+            return 0.50, "peace/conflict venue penalty: manuscript lacks peace/conflict focus"
+        return 1.0, None
+
+    def _is_asia_pacific_venue(self, profile: CandidateJournalProfile) -> bool:
+        journal_text = normalize_space(
+            " ".join([profile.title, profile.scope_text, " ".join(profile.keyword_pool)])
+        ).lower()
+        return self._has_any_term(journal_text, ASIA_PACIFIC_VENUE_TERMS)
+
+    def _is_peace_conflict_venue(self, profile: CandidateJournalProfile) -> bool:
+        journal_text = normalize_space(
+            " ".join([profile.title, profile.scope_text, " ".join(profile.keyword_pool)])
+        ).lower()
+        return self._has_any_term(journal_text, PEACE_CONFLICT_VENUE_TERMS)
+
+    def _has_any_term(self, text: str, terms: set[str]) -> bool:
+        return any(term in text for term in terms)
 
     def _evaluate(
         self,
