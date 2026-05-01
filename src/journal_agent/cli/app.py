@@ -6,6 +6,7 @@ from pathlib import Path
 
 from journal_agent.data.sources import DatasetBuilder
 from journal_agent.data.repository import JournalRepository
+from journal_agent.models.schemas import JournalProfile, is_interdisciplinary_journal_profile
 from journal_agent.ranking.recommender import JournalRecommendationAgent
 from journal_agent.ranking.evaluation import RecommendationValidator
 from journal_agent.ranking.scoring import CorpusWeightProfile
@@ -176,8 +177,12 @@ def run_recommend(args: argparse.Namespace) -> None:
     print(_console_safe(f"Output file: {Path(args.output).resolve()}"))
     print("Top recommendations:")
     for index, item in enumerate(recommendations[:5], start=1):
+        interdisciplinary_label = "interdisciplinary" if is_interdisciplinary_journal_profile(item.journal) else "single-field"
+        category_text = _journal_category_text(item.journal)
         print(_console_safe(
             f"{index}. {item.journal.title} | "
+            f"{interdisciplinary_label} | "
+            f"categories={category_text} | "
             f"overall={item.overall_score:.3f} | "
             f"probability={item.match_probability:.3f} | "
             f"level={item.match_level}"
@@ -345,3 +350,9 @@ def _parse_float_grid(raw_value: str | None) -> list[float]:
             continue
         values.append(float(normalized))
     return sorted(set(value for value in values if value > 0))
+
+
+def _journal_category_text(journal: JournalProfile) -> str:
+    if not journal.subdisciplines:
+        return journal.discipline
+    return "; ".join(journal.subdisciplines[:4])

@@ -16,7 +16,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from journal_agent.models.schemas import JournalProfile, ManuscriptProfile, RecommendationResult
+from journal_agent.models.schemas import (
+    JournalProfile,
+    ManuscriptProfile,
+    RecommendationResult,
+    is_interdisciplinary_journal_profile,
+)
 from journal_agent.ranking.subfields import (
     GENERAL_LAW_REVIEW_BUCKET,
     SubfieldProfile,
@@ -48,15 +53,6 @@ FEATURE_NAMES = (
     "publication_count_log",
 )
 PUBLICATION_COUNT_CAP = 120
-INTERDISCIPLINARY_CATEGORY_TERMS = {
-    "criminology & penology",
-    "ethics",
-    "international relations",
-    "political science",
-    "public administration",
-    "social issues",
-    "social sciences, interdisciplinary",
-}
 NON_RESEARCH_ARTICLE_TITLES = {
     "about the authors",
     "acknowledgements",
@@ -797,18 +793,7 @@ class SupervisedJournalRanker:
         return [*selected, *remaining]
 
     def _is_interdisciplinary_journal(self, journal: JournalProfile) -> bool:
-        categories = {
-            normalize_space(category).lower()
-            for category in journal.subdisciplines
-            if normalize_space(category)
-        }
-        if "social sciences, interdisciplinary" in categories:
-            return True
-        if "law" in categories and len(categories - {"law"}) > 0:
-            return True
-        if "law" not in categories and categories.intersection(INTERDISCIPLINARY_CATEGORY_TERMS):
-            return True
-        return False
+        return is_interdisciplinary_journal_profile(journal)
 
     def save_report(
         self,

@@ -64,6 +64,7 @@ python -m journal_agent recommend ^
 - Journal portrait factors: recent `title / abstract / keywords`, SSCI category metadata, and generated scope text
 - Learning setup: supervised ranking with non-research article filtering, sampled negatives, hard negatives, and real `train / validation / test` split
 - Recommendation policy: when using the interdisciplinary dataset, the recommender ensures at least one interdisciplinary journal appears in the top 5 if an eligible candidate exists
+- Recommendation output labels each journal as `interdisciplinary` or `single-field` and exports `subdisciplines` plus `is_interdisciplinary` in the CSV
 - Latest test accuracy: Top-1 `85.7%`, Top-3 `95.0%`, Top-5 `97.5%`, MRR `0.908`
 - Manuscript input: `docx`, `txt`, `md`, or direct title / abstract / keywords
 

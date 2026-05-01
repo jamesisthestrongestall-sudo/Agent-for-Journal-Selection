@@ -5,6 +5,34 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
+INTERDISCIPLINARY_CATEGORY_TERMS = {
+    "criminology & penology",
+    "ethics",
+    "international relations",
+    "political science",
+    "public administration",
+    "social issues",
+    "social sciences, interdisciplinary",
+    "sociology",
+    "women's studies",
+}
+
+
+def is_interdisciplinary_journal_profile(journal: "JournalProfile") -> bool:
+    categories = {
+        category.strip().lower().replace("’", "'")
+        for category in journal.subdisciplines
+        if category.strip()
+    }
+    if "social sciences, interdisciplinary" in categories:
+        return True
+    if "law" in categories and len(categories - {"law"}) > 0:
+        return True
+    if "law" not in categories and categories.intersection(INTERDISCIPLINARY_CATEGORY_TERMS):
+        return True
+    return False
+
+
 class JournalArticleExample(BaseModel):
     title: str
     keywords: list[str] = Field(default_factory=list)
@@ -117,6 +145,8 @@ class RecommendationResult(BaseModel):
             "website": self.journal.website or "",
             "publisher": self.journal.publisher or "",
             "discipline": self.journal.discipline,
+            "subdisciplines": "; ".join(self.journal.subdisciplines),
+            "is_interdisciplinary": "yes" if is_interdisciplinary_journal_profile(self.journal) else "no",
             "manuscript_primary_subfield": self.manuscript_primary_subfield or "",
             "journal_primary_subfield": self.journal_primary_subfield or "",
             "match_level": self.match_level,
