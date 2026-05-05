@@ -29,26 +29,26 @@
   },
   "validation_metrics": {
     "sample_count": 640,
-    "top1_accuracy": 0.8734375,
-    "top3_accuracy": 0.9546875,
-    "top5_accuracy": 0.9796875,
-    "mrr": 0.9195696227418072
+    "top1_accuracy": 0.1890625,
+    "top3_accuracy": 0.29375,
+    "top5_accuracy": 0.3390625,
+    "mrr": 0.2639896663603539
   },
   "test_metrics": {
     "sample_count": 643,
-    "top1_accuracy": 0.8569206842923794,
-    "top3_accuracy": 0.9502332814930016,
-    "top5_accuracy": 0.9751166407465007,
-    "mrr": 0.9082232491540624
+    "top1_accuracy": 0.19906687402799378,
+    "top3_accuracy": 0.2954898911353033,
+    "top5_accuracy": 0.3452566096423017,
+    "mrr": 0.2692339108109422
   },
   "article_count_sweep": [
     {
       "article_count": 5,
-      "validation_metric": 0.9546875,
-      "validation_top1": 0.8734375,
-      "validation_top3": 0.9546875,
-      "test_top1": 0.8569206842923794,
-      "test_top3": 0.9502332814930016
+      "validation_metric": 0.29375,
+      "validation_top1": 0.1890625,
+      "validation_top3": 0.29375,
+      "test_top1": 0.19906687402799378,
+      "test_top3": 0.2954898911353033
     }
   ]
 }

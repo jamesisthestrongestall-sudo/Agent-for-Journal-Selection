@@ -52,6 +52,15 @@ FEATURE_NAMES = (
     "publication_count_ratio",
     "publication_count_log",
 )
+SEMANTIC_SIMILARITY_WEIGHTS = {
+    "scope_similarity": 0.23,
+    "recent_article_similarity": 0.30,
+    "title_scope_similarity": 0.13,
+    "title_recent_similarity": 0.17,
+    "journal_title_similarity": 0.04,
+    "term_overlap": 0.08,
+    "keyword_overlap": 0.05,
+}
 PUBLICATION_COUNT_CAP = 120
 ASIA_PACIFIC_VENUE_TERMS = {
     "asia pacific",
@@ -1099,6 +1108,16 @@ class SupervisedJournalRanker:
             if generic_penalty < 1.0:
                 bucket_fit = clamp(bucket_fit * generic_penalty)
             topical_penalty, topical_reason = self._topical_scope_penalty(sample, profile)
+            feature_map = dict(zip(self.feature_names, feature_row.tolist(), strict=False))
+            semantic_similarity = self._semantic_similarity_score(feature_map)
+            language_compatibility = self._language_compatibility_score(sample.language, profile.language)
+            semantic_rerank_score = self._semantic_rerank_score(
+                semantic_similarity=semantic_similarity,
+                bucket_fit=bucket_fit,
+                language_compatibility=language_compatibility,
+                generic_penalty=generic_penalty,
+                topical_penalty=topical_penalty,
+            )
             overlap = any(bucket in journal_subfields.focus for bucket in manuscript_subfields.focus)
             same_primary = bool(
                 manuscript_subfields.primary
@@ -1115,8 +1134,8 @@ class SupervisedJournalRanker:
                 rerank_score *= generic_penalty
             if topical_penalty < 1.0:
                 rerank_score *= topical_penalty
-            rerank_score = clamp(rerank_score)
-            feature_map = dict(zip(self.feature_names, feature_row.tolist(), strict=False))
+            model_rerank_score = clamp(rerank_score)
+            rerank_score = semantic_rerank_score
             feature_map.update(
                 {
                     "journal_id": profile.journal_id,
@@ -1125,6 +1144,9 @@ class SupervisedJournalRanker:
                     "probability": float(probability),
                     "bucket_fit": float(bucket_fit),
                     "rerank_score": float(rerank_score),
+                    "model_rerank_score": float(model_rerank_score),
+                    "semantic_similarity": float(semantic_similarity),
+                    "language_compatibility": float(language_compatibility),
                     "journal_primary_subfield": profile.primary_subfield,
                     "generic_penalty": float(generic_penalty),
                     "generic_penalty_reason": generic_reason,
@@ -1136,6 +1158,7 @@ class SupervisedJournalRanker:
         predictions.sort(
             key=lambda item: (
                 -item["rerank_score"],
+                -item["semantic_similarity"],
                 -item["bucket_fit"],
                 -item["probability"],
                 -item.get("topical_penalty", 1.0),
@@ -1143,6 +1166,67 @@ class SupervisedJournalRanker:
             )
         )
         return predictions
+
+    def _semantic_similarity_score(self, feature_map: dict[str, float]) -> float:
+        return clamp(
+            sum(
+                weight * float(feature_map.get(name, 0.0))
+                for name, weight in SEMANTIC_SIMILARITY_WEIGHTS.items()
+            )
+        )
+
+    def _semantic_rerank_score(
+        self,
+        *,
+        semantic_similarity: float,
+        bucket_fit: float,
+        language_compatibility: float,
+        generic_penalty: float,
+        topical_penalty: float,
+    ) -> float:
+        calibrated = clamp(
+            (0.82 * semantic_similarity)
+            + (0.18 * bucket_fit)
+            + (0.04 * language_compatibility)
+        )
+        return clamp(calibrated * generic_penalty * topical_penalty)
+
+    def _language_compatibility_score(self, manuscript_language: str | None, journal_language: str | None) -> float:
+        manuscript = self._normalize_language_label(manuscript_language)
+        journal = self._normalize_language_label(journal_language)
+        if not manuscript or manuscript == "unknown" or not journal or journal == "unknown":
+            return 0.0
+        if journal in {"multi", "multilingual", "multi-language"}:
+            return 0.35
+        if manuscript == journal:
+            return 1.0
+        return -1.0
+
+    def _normalize_language_label(self, language: str | None) -> str:
+        normalized = normalize_space(language or "").lower()
+        aliases = {
+            "eng": "en",
+            "english": "en",
+            "en-us": "en",
+            "en-gb": "en",
+            "spanish": "es",
+            "spa": "es",
+            "español": "es",
+            "french": "fr",
+            "fra": "fr",
+            "fre": "fr",
+            "german": "de",
+            "deu": "de",
+            "ger": "de",
+            "portuguese": "pt",
+            "por": "pt",
+            "chinese": "zh",
+            "mandarin": "zh",
+            "multi-language": "multi-language",
+            "multilanguage": "multi-language",
+            "multi language": "multi-language",
+        }
+        return aliases.get(normalized, normalized)
 
     def _topical_scope_penalty(
         self,
