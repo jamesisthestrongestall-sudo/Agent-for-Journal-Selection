@@ -53,6 +53,7 @@ class JournalRecommendationAgent:
         keywords: list[str] | str | None = None,
         discipline: str = "law",
         top_k: int = 15,
+        candidate_scope: str = "law-related",
     ) -> tuple[ManuscriptProfile, list[RecommendationResult]]:
         manuscript = self.parser.parse(
             manuscript_path,
@@ -67,7 +68,12 @@ class JournalRecommendationAgent:
         manuscript = engine.enrich_manuscript(manuscript)
         if model_path:
             ranker = SupervisedJournalRanker.load(model_path)
-            journals = self._select_candidate_journals(journals, manuscript, discipline=discipline)
+            journals = self._select_candidate_journals(
+                journals,
+                manuscript,
+                discipline=discipline,
+                candidate_scope=candidate_scope,
+            )
             if not journals:
                 raise ValueError(
                     "No candidate journals remain after language filtering. "
@@ -76,7 +82,12 @@ class JournalRecommendationAgent:
             recommendations = ranker.recommend(manuscript, candidate_journals=journals, top_k=top_k)
             return manuscript, recommendations[:top_k]
 
-        journals = self._select_candidate_journals(journals, manuscript, discipline=discipline)
+        journals = self._select_candidate_journals(
+            journals,
+            manuscript,
+            discipline=discipline,
+            candidate_scope=candidate_scope,
+        )
         if not journals:
             raise ValueError(
                 "No candidate journals remain after language filtering. "
@@ -104,6 +115,7 @@ class JournalRecommendationAgent:
         manuscript: ManuscriptProfile,
         *,
         discipline: str,
+        candidate_scope: str = "law-related",
     ) -> list:
         manuscript_language = manuscript.language
         broad_candidates = []
@@ -112,7 +124,10 @@ class JournalRecommendationAgent:
         for journal in journals:
             journal_language = self._journal_language(journal)
             if discipline == "law":
-                if not self._is_law_related_journal(journal):
+                if candidate_scope == "law-only":
+                    if not self._is_direct_law_journal(journal):
+                        continue
+                elif not self._is_law_related_journal(journal):
                     continue
                 if manuscript_language in {"zh", "en"} and journal_language != manuscript_language:
                     continue
@@ -191,3 +206,13 @@ class JournalRecommendationAgent:
         if any(term in journal_text for term in LAW_ADJACENT_JOURNAL_TERMS):
             return True
         return False
+
+    def _is_direct_law_journal(self, journal) -> bool:
+        journal_text = " ".join(
+            [
+                journal.title,
+                " ".join(journal.subdisciplines),
+                " ".join(journal.keywords),
+            ]
+        ).lower()
+        return any(term in journal_text for term in DIRECT_LAW_JOURNAL_TERMS)

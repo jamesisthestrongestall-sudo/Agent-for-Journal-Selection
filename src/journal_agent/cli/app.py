@@ -43,6 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
     recommend.add_argument("--model", help="Optional supervised model .pkl path. If provided, recommendation uses the trained model.")
     recommend.add_argument("--taxonomy", default="data/law_taxonomy.json", help="Path to taxonomy JSON.")
     recommend.add_argument("--discipline", default="law", help="Discipline key. Default: law.")
+    recommend.add_argument(
+        "--candidate-scope",
+        default="law-related",
+        choices=["law-related", "law-only"],
+        help="Use law-only to restrict recommendations to journals with explicit law/legal/criminal-justice signals.",
+    )
     recommend.add_argument("--output", default="output/recommendations.csv", help="CSV output path.")
     recommend.add_argument("--top-k", type=int, default=15, help="Number of journals to keep.")
 
@@ -170,6 +176,7 @@ def run_recommend(args: argparse.Namespace) -> None:
         keywords=args.keywords,
         discipline=args.discipline,
         top_k=args.top_k,
+        candidate_scope=args.candidate_scope,
     )
     agent.export_results(recommendations, args.output)
     print(_console_safe(f"Manuscript: {manuscript.title}"))

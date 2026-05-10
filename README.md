@@ -46,6 +46,12 @@ python -m journal_agent recommend ^
   --top-k 10
 ```
 
+For clearly legal manuscripts where you want a stricter law-journal candidate pool, add:
+
+```bash
+  --candidate-scope law-only
+```
+
 4. Or provide title / abstract / keywords directly.
 
 ```bash
@@ -66,9 +72,11 @@ python -m journal_agent recommend ^
 - Recommendation policy: when using the interdisciplinary dataset, the recommender ensures at least one interdisciplinary journal appears in the top 5 if an eligible candidate exists
 - Recommendation output labels each journal as `interdisciplinary` or `single-field` and exports `subdisciplines` plus `is_interdisciplinary` in the CSV
 - Venue-fit safeguards penalize Asia-Pacific journals when the manuscript lacks regional/comparative focus, and peace/conflict journals when the manuscript lacks peace/conflict/security focus
+- Optional candidate scoping: `--candidate-scope law-only` narrows recommendations to journals with explicit law/legal/criminal-justice signals
 - Internal exact-source test accuracy after semantic calibration: Top-1 `19.9%`, Top-3 `29.5%`, Top-5 `34.5%`, MRR `0.269`
 - External Scopus/OpenAlex validation on 200 fresh recent articles: Top-1 `11.5%`, Top-3 `19.0%`, Top-5 `24.5%`, Top-10 `28.5%`, MRR `0.177`
 - External semantic validity on the same Scopus/OpenAlex sample: Top-5 category overlap `88.0%`, Top-5 focus overlap `78.0%`
+- Focused Scopus ASJC Law validation on 200 fresh recent law articles: broad scope Top-5 `20.5%`; law-only candidate scope Top-5 `23.0%`
 - Manuscript input: `docx`, `txt`, `md`, or direct title / abstract / keywords
 
 ## Other Commands
