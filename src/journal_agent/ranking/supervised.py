@@ -5,6 +5,7 @@ import json
 import math
 import pickle
 import random
+import re
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -125,15 +126,45 @@ NON_RESEARCH_ARTICLE_TITLES = {
     "issue information",
     "masthead",
     "notes on contributors",
+    "online appendix",
     "table of contents",
 }
 NON_RESEARCH_ARTICLE_PREFIXES = (
     "book review:",
+    "book review",
+    "book reviews",
     "correction to:",
     "corrigendum",
     "erratum to:",
     "issue information",
+    "online appendix",
+    "supplemental material",
+    "supplementary material",
 )
+NON_RESEARCH_ARTICLE_HINT_PATTERN = re.compile(
+    r"(\bisbn\b|"
+    r"\buniversity(?:\s+[a-z&.-]+){0,4}\s+press\b|"
+    r"\b(cambridge|oxford|routledge|palgrave|springer|bloomsbury|brill)\b.*\bpress\b|"
+    r"\b\d+\s*pp\b|"
+    r"\b(hb|hardback|pb|paperback)\b|"
+    r"[€£$Ł]\s?\d+)",
+    re.IGNORECASE,
+)
+
+
+def is_non_research_article_record(*, title: str, abstract: str, keywords: tuple[str, ...]) -> bool:
+    normalized_title = normalize_space(title).lower().strip(" .:-")
+    if not normalized_title:
+        return False
+    if normalized_title in NON_RESEARCH_ARTICLE_TITLES:
+        return True
+    if any(normalized_title.startswith(prefix) for prefix in NON_RESEARCH_ARTICLE_PREFIXES):
+        return True
+    if NON_RESEARCH_ARTICLE_HINT_PATTERN.search(title) and (not abstract or len(keywords) <= 2):
+        return True
+    if len(normalized_title.split()) <= 2 and not abstract and len(keywords) <= 1:
+        return normalized_title in {"editorial", "introduction", "preface", "foreword"}
+    return False
 
 
 def tfidf_tokenizer(text: str) -> list[str]:
@@ -341,16 +372,7 @@ class SupervisedJournalDatasetBuilder:
         return usable
 
     def _is_non_research_article(self, *, title: str, abstract: str, keywords: tuple[str, ...]) -> bool:
-        normalized_title = normalize_space(title).lower().strip(" .:-")
-        if not normalized_title:
-            return False
-        if normalized_title in NON_RESEARCH_ARTICLE_TITLES:
-            return True
-        if any(normalized_title.startswith(prefix) for prefix in NON_RESEARCH_ARTICLE_PREFIXES):
-            return True
-        if len(normalized_title.split()) <= 2 and not abstract and len(keywords) <= 1:
-            return normalized_title in {"editorial", "introduction", "preface", "foreword"}
-        return False
+        return is_non_research_article_record(title=title, abstract=abstract, keywords=keywords)
 
     def _journal_split(
         self,
@@ -542,11 +564,20 @@ class SupervisedJournalDatasetBuilder:
         return min(total / (len(terms) * max(sample_count, 1)), 1.0)
 
     def _journal_subfield_profile(self, journal: JournalProfile) -> SubfieldProfile:
-        article_keywords = [keyword for article in journal.recent_articles for keyword in article.keywords]
-        article_titles = [article.title for article in journal.recent_articles]
+        research_articles = [
+            article
+            for article in journal.recent_articles
+            if not is_non_research_article_record(
+                title=normalize_space(article.title),
+                abstract=normalize_space(article.abstract_snippet),
+                keywords=tuple(keyword for keyword in article.keywords if normalize_space(keyword)),
+            )
+        ]
+        article_keywords = [keyword for article in research_articles for keyword in article.keywords]
+        article_titles = [article.title for article in research_articles]
         article_abstracts = [
             article.abstract_snippet[:1200]
-            for article in journal.recent_articles
+            for article in research_articles
             if normalize_space(article.abstract_snippet)
         ]
         return build_law_subfield_profile(
@@ -1388,11 +1419,20 @@ class SupervisedJournalRanker:
         )
 
     def _journal_subfield_profile(self, journal: JournalProfile) -> SubfieldProfile:
-        article_keywords = [keyword for article in journal.recent_articles for keyword in article.keywords]
-        article_titles = [article.title for article in journal.recent_articles]
+        research_articles = [
+            article
+            for article in journal.recent_articles
+            if not is_non_research_article_record(
+                title=normalize_space(article.title),
+                abstract=normalize_space(article.abstract_snippet),
+                keywords=tuple(keyword for keyword in article.keywords if normalize_space(keyword)),
+            )
+        ]
+        article_keywords = [keyword for article in research_articles for keyword in article.keywords]
+        article_titles = [article.title for article in research_articles]
         article_abstracts = [
             article.abstract_snippet[:1200]
-            for article in journal.recent_articles
+            for article in research_articles
             if normalize_space(article.abstract_snippet)
         ]
         return build_law_subfield_profile(

@@ -23,6 +23,26 @@ DEFAULT_HEADERS = {
         "(journal profile enrichment; contact: local-enrichment@example.com)"
     )
 }
+NON_RESEARCH_WORK_TITLE_PREFIXES = (
+    "book review",
+    "book reviews",
+    "correction to:",
+    "corrigendum",
+    "erratum to:",
+    "issue information",
+    "online appendix",
+    "supplemental material",
+    "supplementary material",
+)
+NON_RESEARCH_WORK_TITLE_HINT_PATTERN = re.compile(
+    r"(\bisbn\b|"
+    r"\buniversity(?:\s+[a-z&.-]+){0,4}\s+press\b|"
+    r"\b(cambridge|oxford|routledge|palgrave|springer|bloomsbury|brill)\b.*\bpress\b|"
+    r"\b\d+\s*pp\b|"
+    r"\b(hb|hardback|pb|paperback)\b|"
+    r"[€£$Ł]\s?\d+)",
+    re.IGNORECASE,
+)
 AIMS_TEXT_PATTERN = re.compile(
     r"(aims?\s*(?:&|and)?\s*scope|about\s+this\s+journal|about\s+the\s+journal|"
     r"journal\s+overview|focus\s+and\s+scope|scope)",
@@ -41,6 +61,17 @@ ARTICLE_URL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 YEAR_PATTERN_TEMPLATE = r"(?<!\d){year}(?!\d)"
+
+
+def is_likely_research_work_title(title: str, *, abstract: str = "", keywords: tuple[str, ...] = ()) -> bool:
+    normalized_title = normalize_space(title).lower().strip(" .:-")
+    if not normalized_title:
+        return True
+    if any(normalized_title.startswith(prefix) for prefix in NON_RESEARCH_WORK_TITLE_PREFIXES):
+        return False
+    if NON_RESEARCH_WORK_TITLE_HINT_PATTERN.search(title):
+        return bool(normalize_space(abstract)) and len([keyword for keyword in keywords if normalize_space(keyword)]) > 2
+    return True
 
 
 def reconstruct_abstract(inverted_index: dict[str, list[int]] | None) -> str:
@@ -159,6 +190,7 @@ class OpenAlexClient:
         results = payload.get("results", []) if payload else []
         articles: list[JournalArticleExample] = []
         for result in results:
+            title = normalize_space(result.get("display_name", "")) or "Untitled Article"
             abstract_text = reconstruct_abstract(result.get("abstract_inverted_index"))
             article_keywords = [
                 normalize_space(item.get("display_name", ""))
@@ -171,9 +203,11 @@ class OpenAlexClient:
                     for item in result.get("concepts", [])[:8]
                     if normalize_space(item.get("display_name", ""))
                 ]
+            if not is_likely_research_work_title(title, abstract=abstract_text, keywords=tuple(article_keywords)):
+                continue
             articles.append(
                 JournalArticleExample(
-                    title=normalize_space(result.get("display_name", "")) or "Untitled Article",
+                    title=title,
                     keywords=list(dict.fromkeys(article_keywords)),
                     abstract_snippet=abstract_text[:MAX_ARTICLE_ABSTRACT_CHARS],
                     full_text="",

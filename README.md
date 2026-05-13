@@ -4,6 +4,8 @@ Legal Journal Agent is an AI-assisted journal recommendation pipeline for legal 
 
 The current workflow expands beyond a narrow law-only list into an interdisciplinary SSCI pool covering law, criminology, political science, public administration, international relations, ethics, social issues, and interdisciplinary social sciences. The bundled model now uses a semantic-calibrated reranker so scope, recent article profile, subfield fit, and language compatibility are trusted more than the overfit logistic probability from the small five-article training sample.
 
+The crawler also filters obvious non-research records, including book reviews, corrections, online appendices, supplemental materials, and press/ISBN-style title records. This keeps recent-article training examples closer to the manuscripts the recommender is meant to rank.
+
 ## Recommended Workflow
 
 Install first:
@@ -93,6 +95,7 @@ python -m journal_agent recommend ^
 - Focused Scopus ASJC Law validation on 200 fresh recent law articles: broad scope Top-5 `20.5%`; law-only candidate scope Top-5 `23.0%`
 - Fresh 50-paper Scopus ASJC Law validation: broad scope Top-5 `22.0%`; law-only scope Top-5 `30.0%`; Scopus-law scope Top-5 `36.0%`
 - Fresh 50-article WoS/SSCI Law validation: broad scope Top-5 `20.0%`; WoS-law scope Top-5 `22.0%`, Top-10 `32.0%`, median rank `22.5`
+- WoS/SSCI exact-source accuracy is lower when the sample contains many broad law-review articles. Those journals publish across many legal topics, so title/abstract-only matching often ranks more specialist venues above the true generalist source. Use `--candidate-scope wos-law` when you want WoS Law-category recommendations rather than the broader interdisciplinary pool.
 - Manuscript input: `docx`, `txt`, `md`, or direct title / abstract / keywords
 
 ## Other Commands
