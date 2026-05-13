@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from pathlib import Path
 
 from journal_agent.data.repository import JournalRepository
@@ -8,7 +9,7 @@ from journal_agent.ingestion.manuscript_parser import ManuscriptParser
 from journal_agent.models.schemas import ManuscriptProfile, RecommendationResult
 from journal_agent.ranking.scoring import CorpusScoringEngine
 from journal_agent.ranking.supervised import SupervisedJournalRanker
-from journal_agent.utils.text_processing import detect_language
+from journal_agent.utils.text_processing import detect_language, normalize_space, normalize_title_key
 
 
 DIRECT_LAW_JOURNAL_TERMS = {
@@ -54,6 +55,7 @@ class JournalRecommendationAgent:
         discipline: str = "law",
         top_k: int = 15,
         candidate_scope: str = "law-related",
+        scopus_source_list: str | Path | None = None,
     ) -> tuple[ManuscriptProfile, list[RecommendationResult]]:
         manuscript = self.parser.parse(
             manuscript_path,
@@ -73,6 +75,7 @@ class JournalRecommendationAgent:
                 manuscript,
                 discipline=discipline,
                 candidate_scope=candidate_scope,
+                scopus_source_list=scopus_source_list,
             )
             if not journals:
                 raise ValueError(
@@ -87,6 +90,7 @@ class JournalRecommendationAgent:
             manuscript,
             discipline=discipline,
             candidate_scope=candidate_scope,
+            scopus_source_list=scopus_source_list,
         )
         if not journals:
             raise ValueError(
@@ -116,15 +120,25 @@ class JournalRecommendationAgent:
         *,
         discipline: str,
         candidate_scope: str = "law-related",
+        scopus_source_list: str | Path | None = None,
     ) -> list:
         manuscript_language = manuscript.language
         broad_candidates = []
         narrow_candidates = []
         legal_focus = manuscript.legal_topic_score >= 0.55
+        scopus_law_ids = (
+            self._scopus_law_journal_ids(journals, scopus_source_list)
+            if candidate_scope == "scopus-law"
+            else set()
+        )
         for journal in journals:
             journal_language = self._journal_language(journal)
             if discipline == "law":
-                if candidate_scope == "law-only":
+                journal_id = journal.journal_id or normalize_title_key(journal.title)
+                if candidate_scope == "scopus-law":
+                    if journal_id not in scopus_law_ids:
+                        continue
+                elif candidate_scope == "law-only":
                     if not self._is_direct_law_journal(journal):
                         continue
                 elif not self._is_law_related_journal(journal):
@@ -216,3 +230,74 @@ class JournalRecommendationAgent:
             ]
         ).lower()
         return any(term in journal_text for term in DIRECT_LAW_JOURNAL_TERMS)
+
+    def _scopus_law_journal_ids(self, journals: list, source_list: str | Path | None) -> set[str]:
+        if source_list is None:
+            raise ValueError("Use --scopus-source-list when --candidate-scope scopus-law is selected.")
+        path = Path(source_list)
+        if not path.exists():
+            raise ValueError(
+                f"Scopus source list not found: {path}. "
+                "Download the Scopus Source List XLSX and pass it with --scopus-source-list."
+            )
+        try:
+            from openpyxl import load_workbook
+        except ImportError as exc:
+            raise ValueError("Install openpyxl to use --candidate-scope scopus-law.") from exc
+
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        sheet = workbook["Scopus Sources Mar. 2026"] if "Scopus Sources Mar. 2026" in workbook.sheetnames else workbook.active
+        rows = sheet.iter_rows(values_only=True)
+        headers = [str(value).strip() if value is not None else "" for value in next(rows)]
+
+        def column_index(name: str) -> int:
+            try:
+                return headers.index(name)
+            except ValueError as exc:
+                raise ValueError(f"Scopus source list is missing expected column: {name}") from exc
+
+        title_col = column_index("Source Title")
+        issn_col = column_index("ISSN")
+        eissn_col = column_index("EISSN")
+        status_col = column_index("Active or Inactive")
+        type_col = column_index("Source Type")
+        asjc_col = column_index("All Science Journal Classification Codes (ASJC)")
+
+        scopus_titles: set[str] = set()
+        scopus_issns: set[str] = set()
+        for row in rows:
+            source_type = normalize_space(str(row[type_col] or "")).lower()
+            status = normalize_space(str(row[status_col] or "")).lower()
+            asjc_codes = set(re.findall(r"\d{4}", normalize_space(str(row[asjc_col] or ""))))
+            if source_type != "journal" or status != "active" or "3308" not in asjc_codes:
+                continue
+            title = normalize_space(str(row[title_col] or ""))
+            if title:
+                scopus_titles.add(normalize_title_key(title))
+            scopus_issns.update(self._split_issns(row[issn_col] if issn_col < len(row) else ""))
+            scopus_issns.update(self._split_issns(row[eissn_col] if eissn_col < len(row) else ""))
+
+        selected_ids: set[str] = set()
+        for journal in journals:
+            journal_id = journal.journal_id or normalize_title_key(journal.title)
+            journal_issns = {
+                self._normalize_issn(journal.issn),
+                self._normalize_issn(journal.eissn),
+            }
+            if normalize_title_key(journal.title) in scopus_titles or bool(journal_issns & scopus_issns):
+                selected_ids.add(journal_id)
+        if not selected_ids:
+            raise ValueError("No dataset journals matched active Scopus ASJC Law records.")
+        return selected_ids
+
+    def _split_issns(self, value: object) -> set[str]:
+        text = normalize_space(str(value or ""))
+        if not text or text.lower() == "nan":
+            return set()
+        return {normalized for part in re.split(r"[,;/\s]+", text) if (normalized := self._normalize_issn(part))}
+
+    def _normalize_issn(self, value: object) -> str:
+        text = normalize_space(str(value or ""))
+        if not text or text.lower() == "nan":
+            return ""
+        return re.sub(r"[^0-9Xx]", "", text).upper()
