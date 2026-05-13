@@ -46,16 +46,21 @@ def build_parser() -> argparse.ArgumentParser:
     recommend.add_argument(
         "--candidate-scope",
         default="law-related",
-        choices=["law-related", "law-only", "scopus-law"],
+        choices=["law-related", "law-only", "scopus-law", "wos-law"],
         help=(
-            "Use law-only for explicit law/legal/criminal-justice journals, or scopus-law "
-            "for active Scopus ASJC Law journals from --scopus-source-list."
+            "Use law-only for explicit law/legal/criminal-justice journals, scopus-law "
+            "for active Scopus ASJC Law journals, or wos-law for Web of Science SSCI Law journals."
         ),
     )
     recommend.add_argument(
         "--scopus-source-list",
         default="data/scopus_source_list_mar_2026.xlsx",
         help="Path to the Scopus Source List XLSX. Used only with --candidate-scope scopus-law.",
+    )
+    recommend.add_argument(
+        "--wos-ssci-list",
+        default="data/Social Sciences Citation Index (SSCI).csv",
+        help="Path to the Web of Science SSCI CSV. Used only with --candidate-scope wos-law.",
     )
     recommend.add_argument("--output", default="output/recommendations.csv", help="CSV output path.")
     recommend.add_argument("--top-k", type=int, default=15, help="Number of journals to keep.")
@@ -186,6 +191,7 @@ def run_recommend(args: argparse.Namespace) -> None:
         top_k=args.top_k,
         candidate_scope=args.candidate_scope,
         scopus_source_list=args.scopus_source_list,
+        wos_source_list=args.wos_ssci_list,
     )
     agent.export_results(recommendations, args.output)
     print(_console_safe(f"Manuscript: {manuscript.title}"))

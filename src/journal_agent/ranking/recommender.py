@@ -56,6 +56,7 @@ class JournalRecommendationAgent:
         top_k: int = 15,
         candidate_scope: str = "law-related",
         scopus_source_list: str | Path | None = None,
+        wos_source_list: str | Path | None = None,
     ) -> tuple[ManuscriptProfile, list[RecommendationResult]]:
         manuscript = self.parser.parse(
             manuscript_path,
@@ -76,6 +77,7 @@ class JournalRecommendationAgent:
                 discipline=discipline,
                 candidate_scope=candidate_scope,
                 scopus_source_list=scopus_source_list,
+                wos_source_list=wos_source_list,
             )
             if not journals:
                 raise ValueError(
@@ -91,6 +93,7 @@ class JournalRecommendationAgent:
             discipline=discipline,
             candidate_scope=candidate_scope,
             scopus_source_list=scopus_source_list,
+            wos_source_list=wos_source_list,
         )
         if not journals:
             raise ValueError(
@@ -121,6 +124,7 @@ class JournalRecommendationAgent:
         discipline: str,
         candidate_scope: str = "law-related",
         scopus_source_list: str | Path | None = None,
+        wos_source_list: str | Path | None = None,
     ) -> list:
         manuscript_language = manuscript.language
         broad_candidates = []
@@ -131,12 +135,20 @@ class JournalRecommendationAgent:
             if candidate_scope == "scopus-law"
             else set()
         )
+        wos_law_ids = (
+            self._wos_law_journal_ids(journals, wos_source_list)
+            if candidate_scope == "wos-law"
+            else set()
+        )
         for journal in journals:
             journal_language = self._journal_language(journal)
             if discipline == "law":
                 journal_id = journal.journal_id or normalize_title_key(journal.title)
                 if candidate_scope == "scopus-law":
                     if journal_id not in scopus_law_ids:
+                        continue
+                elif candidate_scope == "wos-law":
+                    if journal_id not in wos_law_ids:
                         continue
                 elif candidate_scope == "law-only":
                     if not self._is_direct_law_journal(journal):
@@ -289,6 +301,48 @@ class JournalRecommendationAgent:
         if not selected_ids:
             raise ValueError("No dataset journals matched active Scopus ASJC Law records.")
         return selected_ids
+
+    def _wos_law_journal_ids(self, journals: list, source_list: str | Path | None) -> set[str]:
+        if source_list is None:
+            raise ValueError("Use --wos-ssci-list when --candidate-scope wos-law is selected.")
+        path = Path(source_list)
+        if not path.exists():
+            raise ValueError(
+                f"Web of Science SSCI list not found: {path}. "
+                "Pass the local SSCI CSV with --wos-ssci-list."
+            )
+
+        wos_titles: set[str] = set()
+        wos_issns: set[str] = set()
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            for row in csv.DictReader(handle):
+                categories = self._split_wos_categories(row.get("Web of Science Categories", ""))
+                if "law" not in categories:
+                    continue
+                title = normalize_space(row.get("Journal title", ""))
+                if title:
+                    wos_titles.add(normalize_title_key(title))
+                wos_issns.update(self._split_issns(row.get("ISSN", "")))
+                wos_issns.update(self._split_issns(row.get("eISSN", "")))
+
+        selected_ids: set[str] = set()
+        for journal in journals:
+            journal_id = journal.journal_id or normalize_title_key(journal.title)
+            journal_issns = {
+                self._normalize_issn(journal.issn),
+                self._normalize_issn(journal.eissn),
+            }
+            if normalize_title_key(journal.title) in wos_titles or bool(journal_issns & wos_issns):
+                selected_ids.add(journal_id)
+        if not selected_ids:
+            raise ValueError("No dataset journals matched Web of Science SSCI Law records.")
+        return selected_ids
+
+    def _split_wos_categories(self, value: object) -> set[str]:
+        text = normalize_space(str(value or ""))
+        if not text or text.lower() == "nan":
+            return set()
+        return {item.strip().lower() for item in re.split(r"\s*\|\s*|;", text) if item.strip()}
 
     def _split_issns(self, value: object) -> set[str]:
         text = normalize_space(str(value or ""))

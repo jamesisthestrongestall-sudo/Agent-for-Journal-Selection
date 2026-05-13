@@ -59,6 +59,13 @@ For a Scopus-indexed law-journal pool, download the Scopus Source List XLSX and 
   --scopus-source-list data/scopus_source_list_mar_2026.xlsx
 ```
 
+For a Web of Science SSCI Law pool using the bundled SSCI CSV, add:
+
+```bash
+  --candidate-scope wos-law ^
+  --wos-ssci-list "data/Social Sciences Citation Index (SSCI).csv"
+```
+
 4. Or provide title / abstract / keywords directly.
 
 ```bash
@@ -79,12 +86,13 @@ python -m journal_agent recommend ^
 - Recommendation policy: when using the interdisciplinary dataset, the recommender ensures at least one interdisciplinary journal appears in the top 5 if an eligible candidate exists
 - Recommendation output labels each journal as `interdisciplinary` or `single-field` and exports `subdisciplines` plus `is_interdisciplinary` in the CSV
 - Venue-fit safeguards penalize Asia-Pacific journals when the manuscript lacks regional/comparative focus, and peace/conflict journals when the manuscript lacks peace/conflict/security focus
-- Optional candidate scoping: `--candidate-scope law-only` narrows recommendations to journals with explicit law/legal/criminal-justice signals; `--candidate-scope scopus-law` narrows to active Scopus ASJC `3308 Law` journals when a Scopus Source List XLSX is available
+- Optional candidate scoping: `--candidate-scope law-only` narrows recommendations to journals with explicit law/legal/criminal-justice signals; `--candidate-scope scopus-law` narrows to active Scopus ASJC `3308 Law` journals when a Scopus Source List XLSX is available; `--candidate-scope wos-law` narrows to Web of Science SSCI Law-category journals from the SSCI CSV
 - Internal exact-source test accuracy after semantic calibration: Top-1 `19.9%`, Top-3 `29.5%`, Top-5 `34.5%`, MRR `0.269`
 - External Scopus/OpenAlex validation on 200 fresh recent articles: Top-1 `11.5%`, Top-3 `19.0%`, Top-5 `24.5%`, Top-10 `28.5%`, MRR `0.177`
 - External semantic validity on the same Scopus/OpenAlex sample: Top-5 category overlap `88.0%`, Top-5 focus overlap `78.0%`
 - Focused Scopus ASJC Law validation on 200 fresh recent law articles: broad scope Top-5 `20.5%`; law-only candidate scope Top-5 `23.0%`
 - Fresh 50-paper Scopus ASJC Law validation: broad scope Top-5 `22.0%`; law-only scope Top-5 `30.0%`; Scopus-law scope Top-5 `36.0%`
+- Fresh 50-article WoS/SSCI Law validation: broad scope Top-5 `20.0%`; WoS-law scope Top-5 `22.0%`, Top-10 `32.0%`, median rank `22.5`
 - Manuscript input: `docx`, `txt`, `md`, or direct title / abstract / keywords
 
 ## Other Commands
